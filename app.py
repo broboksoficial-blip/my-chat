@@ -45,10 +45,10 @@ HTML = """
 <script>
 // 🔥 ТВОЙ FIREBASE CONFIG
 const firebaseConfig = {
-  apiKey: "YOUR_KEY",
-  authDomain: "YOUR_DOMAIN",
-  projectId: "YOUR_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
+  authDomain: "my-chat2-ae3ca.firebaseapp.com",
+  projectId: "my-chat2-ae3ca",
+  appId: "1:407628010061:web:72f3cb30760c52101cc204"
 };
 
 firebase.initializeApp(firebaseConfig);
