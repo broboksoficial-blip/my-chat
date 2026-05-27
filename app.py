@@ -11,13 +11,13 @@ def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-   c.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    email TEXT UNIQUE,
-    name TEXT,
-    username TEXT
-)
-""")
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        email TEXT UNIQUE,
+        name TEXT,
+        username TEXT
+    )
+    """)
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS messages (
@@ -33,7 +33,63 @@ CREATE TABLE IF NOT EXISTS users (
 
 init_db()
 
-# --- HTML ---
+# --- GOOGLE LOGIN ---
+@app.route("/google-login", methods=["POST"])
+def google_login():
+    data = request.get_json()
+
+    name = data["name"]
+    email = data["email"]
+
+    session["name"] = name
+    session["email"] = email
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("""
+    INSERT OR IGNORE INTO users (email, name)
+    VALUES (?, ?)
+    """, (email, name))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+# --- SET USERNAME ---
+@app.route("/set-username", methods=["GET", "POST"])
+def set_username():
+    if request.method == "POST":
+        username = request.form["username"]
+        email = session.get("email")
+
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+
+        c.execute("""
+        UPDATE users
+        SET username=?
+        WHERE email=?
+        """, (username, email))
+
+        conn.commit()
+        conn.close()
+
+        session["username"] = username
+
+        return redirect("/")
+
+    return """
+    <form method="POST">
+        <h3>Введите имя пользователя</h3>
+        <input name="username" placeholder="например: kirill123">
+        <button>Сохранить</button>
+    </form>
+    """
+
+# --- HOME HTML ---
 HTML = """
 <!DOCTYPE html>
 <html>
@@ -70,15 +126,17 @@ function loginGoogle() {
       const user = result.user;
 
       fetch("/google-login", {
-  method: "POST",
-  headers: {"Content-Type": "application/json"},
-  body: JSON.stringify({
-    name: user.displayName,
-    email: user.email
-  })
-}).then(() => {
-  window.location.href = "/set-username";
-});
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          name: user.displayName,
+          email: user.email
+        })
+      }).then(() => {
+        window.location.href = "/set-username";
+      });
+    });
+}
 </script>
 
 <div class="left">
@@ -90,11 +148,15 @@ function loginGoogle() {
 
 <div class="chat">
 
-{% if not name %}
+{% if not session.get("email") %}
   <button onclick="loginGoogle()">Войти через Google</button>
 
+{% elif not session.get("username") %}
+  <h3>Теперь придумай имя</h3>
+  <a href="/set-username">Задать имя</a>
+
 {% elif not peer %}
-  <h3>Привет, {{name}}</h3>
+  <h3>Привет, {{session.get("username")}}</h3>
   <p>Выбери пользователя слева 👈</p>
 
 {% else %}
@@ -126,40 +188,12 @@ def home():
     users = [u[0] for u in c.fetchall()]
     conn.close()
 
-    return render_template_string(HTML,
-        users=users,
-        name=session.get("name"),
-        peer=None,
-        messages=[]
-    )
-
-# --- GOOGLE LOGIN ---
-@app.route("/google-login", methods=["POST"])
-def google_login():
-    data = request.get_json()
-
-    name = data["name"]
-    email = data["email"]
-
-    session["name"] = name
-
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-
-    c.execute("""
-    INSERT OR IGNORE INTO users (name, email)
-    VALUES (?, ?)
-    """, (name, email))
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({"ok": True})
+    return render_template_string(HTML, users=users)
 
 # --- CHAT ---
 @app.route("/chat/<user>")
 def chat(user):
-    me = session.get("name")
+    me = session.get("username")
     if not me:
         return redirect("/")
 
@@ -175,14 +209,10 @@ def chat(user):
 
     messages = c.fetchall()
 
-    c.execute("SELECT name FROM users")
-    users = [u[0] for u in c.fetchall()]
-
     conn.close()
 
     return render_template_string(HTML,
-        users=users,
-        name=me,
+        users=[],
         peer=user,
         messages=messages
     )
@@ -190,13 +220,17 @@ def chat(user):
 # --- SEND ---
 @app.route("/send/<user>", methods=["POST"])
 def send(user):
-    me = session.get("name")
+    me = session.get("username")
     msg = request.form["msg"]
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("INSERT INTO messages VALUES (NULL, ?, ?, ?)",
-              (me, user, msg))
+
+    c.execute("""
+    INSERT INTO messages (sender, receiver, message)
+    VALUES (?, ?, ?)
+    """, (me, user, msg))
+
     conn.commit()
     conn.close()
 
