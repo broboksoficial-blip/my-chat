@@ -142,7 +142,12 @@ def google_login():
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO users (name) VALUES (?)", (name,))
+    email = data["email"]
+
+c.execute("""
+INSERT OR IGNORE INTO users (name, email)
+VALUES (?, ?)
+""", (name, email))
     conn.commit()
     conn.close()
 
