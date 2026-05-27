@@ -43,6 +43,7 @@ def google_login():
 
     session["name"] = name
     session["email"] = email
+    session.permanent = True
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -83,13 +84,14 @@ def set_username():
 
     return """
     <form method="POST">
-        <h3>Введите имя пользователя</h3>
+        <h3>Придумай имя</h3>
         <input name="username" placeholder="например: kirill123">
         <button>Сохранить</button>
     </form>
     """
 
-# --- HOME HTML ---
+
+# --- HOME ---
 HTML = """
 <!DOCTYPE html>
 <html>
@@ -125,16 +127,17 @@ function loginGoogle() {
     .then((result) => {
       const user = result.user;
 
-      fetch("/google-login", {
+      return fetch("/google-login", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           name: user.displayName,
           email: user.email
         })
-      }).then(() => {
-        window.location.href = "/set-username";
       });
+    })
+    .then(() => {
+      window.location.href = "/set-username";
     });
 }
 </script>
@@ -152,12 +155,12 @@ function loginGoogle() {
   <button onclick="loginGoogle()">Войти через Google</button>
 
 {% elif not session.get("username") %}
-  <h3>Теперь придумай имя</h3>
-  <a href="/set-username">Задать имя</a>
+  <h3>Задай имя</h3>
+  <a href="/set-username">Перейти</a>
 
 {% elif not peer %}
   <h3>Привет, {{session.get("username")}}</h3>
-  <p>Выбери пользователя слева 👈</p>
+  <p>Выбери пользователя</p>
 
 {% else %}
   <h3>Чат с {{peer}}</h3>
@@ -179,16 +182,20 @@ function loginGoogle() {
 </html>
 """
 
+
 # --- HOME ---
 @app.route("/")
 def home():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("SELECT name FROM users")
+
+    c.execute("SELECT email FROM users")
     users = [u[0] for u in c.fetchall()]
+
     conn.close()
 
-    return render_template_string(HTML, users=users)
+    return render_template_string(HTML, users=users, peer=None)
+
 
 # --- CHAT ---
 @app.route("/chat/<user>")
@@ -217,6 +224,7 @@ def chat(user):
         messages=messages
     )
 
+
 # --- SEND ---
 @app.route("/send/<user>", methods=["POST"])
 def send(user):
@@ -236,6 +244,6 @@ def send(user):
 
     return redirect("/chat/" + user)
 
-# --- RUN ---
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
