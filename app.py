@@ -13,8 +13,9 @@ def init_db():
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        name TEXT UNIQUE
-    )
+    name TEXT,
+    email TEXT UNIQUE
+)
     """)
 
     c.execute("""
