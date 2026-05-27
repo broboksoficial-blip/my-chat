@@ -181,8 +181,23 @@ function loginGoogle() {
 </body>
 </html>
 """
+# --- Search ---
+@app.route("/search")
+def search():
+    q = request.args.get("q", "")
 
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
 
+    c.execute("""
+    SELECT username FROM users
+    WHERE username LIKE ?
+    """, (f"%{q}%",))
+
+    res = [r[0] for r in c.fetchall()]
+    conn.close()
+
+    return jsonify({"results": res})
 # --- HOME ---
 @app.route("/")
 def home():
