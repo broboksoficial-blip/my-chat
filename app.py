@@ -6,10 +6,16 @@ app.secret_key = "chat_secret"
 
 DB = "chat.db"
 
-# --- DB INIT ---
+# --- INIT DB ---
 def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        name TEXT UNIQUE
+    )
+    """)
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS messages (
@@ -25,7 +31,6 @@ def init_db():
 
 init_db()
 
-# --- HTML ---
 HTML = """
 <!DOCTYPE html>
 <html>
@@ -52,7 +57,7 @@ body { font-family: Arial; display:flex; }
 
 {% if not name %}
 <form method="POST" action="/login">
-  <input name="name" placeholder="Имя">
+  <input name="name" placeholder="Введи имя">
   <button>Войти</button>
 </form>
 
@@ -80,24 +85,44 @@ body { font-family: Arial; display:flex; }
 </html>
 """
 
-# --- USERS (временно) ---
-users = ["Аня", "Вася", "Петя"]
-
+# --- HOME ---
 @app.route("/")
 def home():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT name FROM users")
+    users = [u[0] for u in c.fetchall()]
+
+    conn.close()
+
     return render_template_string(HTML, users=users, name=session.get("name"), peer=None)
 
+# --- LOGIN (REGISTRATION) ---
 @app.route("/login", methods=["POST"])
 def login():
-    session["name"] = request.form["name"]
-    return redirect(url_for("home"))
+    name = request.form["name"]
+    session["name"] = name
 
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    try:
+        c.execute("INSERT INTO users (name) VALUES (?)", (name,))
+    except:
+        pass
+
+    conn.commit()
+    conn.close()
+
+    return redirect("/")
+
+# --- CHAT ---
 @app.route("/chat/<user>")
 def chat(user):
-    if "name" not in session:
+    me = session.get("name")
+    if not me:
         return redirect("/")
-
-    me = session["name"]
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -110,6 +135,14 @@ def chat(user):
     """, (me, user, user, me))
 
     messages = c.fetchall()
+
+    conn.close()
+
+    # users list
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT name FROM users")
+    users = [u[0] for u in c.fetchall()]
     conn.close()
 
     return render_template_string(HTML,
@@ -119,6 +152,7 @@ def chat(user):
         messages=messages
     )
 
+# --- SEND ---
 @app.route("/send/<user>", methods=["POST"])
 def send(user):
     me = session.get("name")
@@ -127,7 +161,7 @@ def send(user):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    c.execute("INSERT INTO messages (sender, receiver, message) VALUES (?, ?, ?)",
+    c.execute("INSERT INTO messages VALUES (NULL, ?, ?, ?)",
               (me, user, msg))
 
     conn.commit()
