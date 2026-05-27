@@ -70,15 +70,15 @@ function loginGoogle() {
       const user = result.user;
 
       fetch("/google-login", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-  name: user.displayName,
-  email: user.email
-})
-      }).then(() => location.reload());
-    });
-}
+  method: "POST",
+  headers: {"Content-Type": "application/json"},
+  body: JSON.stringify({
+    name: user.displayName,
+    email: user.email
+  })
+}).then(() => {
+  window.location.href = "/set-username";
+});
 </script>
 
 <div class="left">
