@@ -154,14 +154,6 @@ def google_login():
     conn.close()
 
     return jsonify({"ok": True})
-c.execute("""
-INSERT OR IGNORE INTO users (name, email)
-VALUES (?, ?)
-""", (name, email))
-    conn.commit()
-    conn.close()
-
-    return jsonify({"ok": True})
 
 # --- CHAT ---
 @app.route("/chat/<user>")
