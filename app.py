@@ -1,103 +1,54 @@
-from flask import Flask, render_template_string
+from flask import Flask, request, render_template_string, session, redirect, url_for
 
 app = Flask(__name__)
+app.secret_key = "chat_secret"
+
+messages = []
 
 HTML = """
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Chat</title>
+  <title>Чат</title>
+  <style>
+    body { font-family: Arial; background:#f2f2f2; }
+    .box { width:400px; margin:50px auto; background:white; padding:20px; border-radius:10px; }
+    .msg { padding:5px; border-bottom:1px solid #eee; }
+    input { width:80%; padding:8px; }
+    button { padding:8px; }
+  </style>
 </head>
 <body>
 
-<h2>💬 Чат</h2>
+<div class="box">
 
-<!-- LOGIN -->
-<div id="login">
-  <h3>Вход по номеру 📱</h3>
-  <input id="phone" placeholder="+79991234567">
-  <button onclick="sendCode()">Отправить код</button>
+{% if not name %}
+  <h3>Вход в чат</h3>
+  <form method="POST" action="/login">
+    <input name="name" placeholder="Введи имя" required>
+    <button>Войти</button>
+  </form>
+{% else %}
+  <h3>💬 Чат (ты: {{name}})</h3>
 
-  <br><br>
+  <div>
+    {% for m in messages %}
+      <div class="msg"><b>{{m["name"]}}:</b> {{m["text"]}}</div>
+    {% endfor %}
+  </div>
 
-  <input id="code" placeholder="SMS код">
-  <button onclick="verifyCode()">Подтвердить</button>
+  <form method="POST" action="/send">
+    <input name="msg" placeholder="Сообщение" required>
+    <button>Отправить</button>
+  </form>
 
-  <div id="recaptcha-container"></div>
+  <br>
+  <a href="/logout">Выйти</a>
+
+{% endif %}
+
 </div>
-
-<hr>
-
-<!-- CHAT -->
-<div id="chat" style="display:none;">
-  <h3>Чат 💬</h3>
-
-  <div id="messages"></div>
-
-  <input id="msg" placeholder="Сообщение">
-  <button onclick="sendMessage()">Отправить</button>
-</div>
-
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-
-<script>
-// 🔥 ТВОЙ FIREBASE CONFIG
-const firebaseConfig = {
-  apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
-  authDomain: "my-chat2-ae3ca.firebaseapp.com",
-  projectId: "my-chat2-ae3ca",
-  appId: "1:407628010061:web:72f3cb30760c52101cc204"
-};
-
-firebase.initializeApp(firebaseConfig);
-
-let confirmationResult;
-
-// reCAPTCHA
-window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
-  size: 'invisible'
-});
-
-// 📱 отправка SMS
-function sendCode() {
-  const phone = document.getElementById("phone").value;
-
-  firebase.auth().signInWithPhoneNumber(phone, window.recaptchaVerifier)
-    .then((result) => {
-      confirmationResult = result;
-      alert("Код отправлен!");
-    })
-    .catch((error) => {
-      alert(error.message);
-    });
-}
-
-// 🔐 проверка кода
-function verifyCode() {
-  const code = document.getElementById("code").value;
-
-  confirmationResult.confirm(code)
-    .then((result) => {
-      document.getElementById("login").style.display = "none";
-      document.getElementById("chat").style.display = "block";
-      alert("Вход выполнен!");
-    })
-    .catch((error) => {
-      alert("Неверный код");
-    });
-}
-
-// 💬 чат (пока локальный)
-function sendMessage() {
-  const msg = document.getElementById("msg").value;
-  const div = document.getElementById("messages");
-
-  div.innerHTML += "<p>" + msg + "</p>";
-  document.getElementById("msg").value = "";
-}
-</script>
 
 </body>
 </html>
@@ -105,7 +56,29 @@ function sendMessage() {
 
 @app.route("/")
 def home():
-    return render_template_string(HTML)
+    return render_template_string(HTML, messages=messages, name=session.get("name"))
+
+@app.route("/login", methods=["POST"])
+def login():
+    session["name"] = request.form["name"]
+    return redirect(url_for("home"))
+
+@app.route("/logout")
+def logout():
+    session.pop("name", None)
+    return redirect(url_for("home"))
+
+@app.route("/send", methods=["POST"])
+def send():
+    if "name" not in session:
+        return redirect(url_for("home"))
+
+    messages.append({
+        "name": session["name"],
+        "text": request.form["msg"]
+    })
+
+    return redirect(url_for("home"))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
