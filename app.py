@@ -136,14 +136,24 @@ def home():
 @app.route("/google-login", methods=["POST"])
 def google_login():
     data = request.get_json()
+
     name = data["name"]
+    email = data["email"]
 
     session["name"] = name
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    email = data["email"]
 
+    c.execute("""
+    INSERT OR IGNORE INTO users (name, email)
+    VALUES (?, ?)
+    """, (name, email))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
 c.execute("""
 INSERT OR IGNORE INTO users (name, email)
 VALUES (?, ?)
