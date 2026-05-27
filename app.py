@@ -198,21 +198,3 @@ def send(user):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-from flask import jsonify
-
-@app.route("/google-login", methods=["POST"])
-def google_login():
-    data = request.get_json()
-
-    session["name"] = data["name"]
-
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-
-    c.execute("INSERT OR IGNORE INTO users (name) VALUES (?)",
-              (data["name"],))
-
-    conn.commit()
-    conn.close()
-
-    return jsonify({"ok": True})
