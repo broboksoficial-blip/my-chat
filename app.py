@@ -56,11 +56,7 @@ body { font-family: Arial; display:flex; }
 <div class="chat">
 
 {% if not name %}
-<form method="POST" action="/login">
-  <input name="name" placeholder="Введи имя">
-  <button>Войти</button>
-</form>
-
+<button onclick="loginGoogle()">Войти через Google</button>
 {% elif not peer %}
 <h3>Привет, {{name}}</h3>
 <p>Выбери пользователя слева 👈</p>
