@@ -45,7 +45,38 @@ body { font-family: Arial; display:flex; }
 </style>
 </head>
 <body>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
+<script>
+const firebaseConfig = {
+  apiKey: "ТВОЙ_API_KEY",
+  authDomain: "ТВОЙ_PROJECT.firebaseapp.com",
+  projectId: "ТВОЙ_PROJECT",
+  appId: "ТВОЙ_APP_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+function loginGoogle() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+
+  firebase.auth().signInWithPopup(provider)
+    .then((result) => {
+      const user = result.user;
+
+      fetch("/google-login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          name: user.displayName
+        })
+      }).then(() => {
+        location.reload();
+      });
+    });
+}
+</script>
 <div class="left">
 <h3>Контакты</h3>
 {% for u in users %}
