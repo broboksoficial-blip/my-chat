@@ -20,18 +20,18 @@ def init_db():
     """)
 
     c.execute("""
+    CREATE TABLE IF NOT EXISTS friends (
+        user TEXT,
+        friend TEXT
+    )
+    """)
+
+    c.execute("""
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         sender TEXT,
         receiver TEXT,
         message TEXT
-    )
-    """)
-
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS contacts (
-        owner TEXT,
-        contact TEXT
     )
     """)
 
@@ -61,6 +61,7 @@ def google_login():
 
     return jsonify({"ok": True})
 
+
 # ---------------- SET USERNAME ----------------
 @app.route("/set-username", methods=["GET", "POST"])
 def set_username():
@@ -72,7 +73,9 @@ def set_username():
         c = conn.cursor()
 
         c.execute("""
-        UPDATE users SET username=? WHERE email=?
+        UPDATE users
+        SET username=?
+        WHERE email=?
         """, (username, email))
 
         conn.commit()
@@ -87,6 +90,7 @@ def set_username():
         <button>Save</button>
     </form>
     """
+
 
 # ---------------- SEARCH ----------------
 @app.route("/search")
@@ -106,49 +110,30 @@ def search():
 
     return jsonify({"results": res})
 
-# ---------------- ADD CONTACT ----------------
-@app.route("/add-contact", methods=["POST"])
-def add_contact():
+
+# ---------------- ADD FRIEND ----------------
+@app.route("/add-friend", methods=["POST"])
+def add_friend():
     data = request.get_json()
-    owner = session.get("username")
-    contact = data["contact"]
+
+    me = session.get("username")
+    other = data["username"]
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
     c.execute("""
-    INSERT INTO contacts (owner, contact)
+    INSERT INTO friends (user, friend)
     VALUES (?, ?)
-    """, (owner, contact))
+    """, (me, other))
 
     conn.commit()
     conn.close()
 
     return jsonify({"ok": True})
 
-# ---------------- CHECK NOTIFICATIONS ----------------
-@app.route("/check-notifications")
-def check_notifications():
-    me = session.get("username")
 
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-
-    c.execute("""
-    SELECT sender, message FROM messages
-    WHERE receiver=?
-    ORDER BY id DESC LIMIT 1
-    """, (me,))
-
-    row = c.fetchone()
-    conn.close()
-
-    if row:
-        return jsonify({"new": True, "from": row[0], "msg": row[1]})
-
-    return jsonify({"new": False})
-
-# ---------------- HOME HTML ----------------
+# ---------------- HOME ----------------
 HTML = """
 <!DOCTYPE html>
 <html>
@@ -165,30 +150,46 @@ body { font-family: Arial; display:flex; }
 <body>
 
 <script>
-function pollNotifications() {
-  fetch("/check-notifications")
+function searchUser(){
+    let q = document.getElementById("q").value;
+
+    fetch("/search?q=" + q)
     .then(r => r.json())
     .then(d => {
-      if (d.new) {
-        console.log("NEW MESSAGE", d);
-        alert("Новое сообщение от " + d.from + ": " + d.msg);
-      }
+        let html = "";
+
+        d.results.forEach(u => {
+            html += `
+                <div>
+                    ${u}
+                    <button onclick="addFriend('${u}')">+</button>
+                </div>
+            `;
+        });
+
+        document.getElementById("results").innerHTML = html;
     });
 }
 
-setInterval(pollNotifications, 4000);
+function addFriend(u){
+    fetch("/add-friend", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({username: u})
+    }).then(() => alert("Добавлено в друзья"));
+}
 </script>
 
 <div class="left">
 
 <h3>Поиск</h3>
-<input id="q">
+<input id="q" placeholder="username">
 <button onclick="searchUser()">Найти</button>
 <div id="results"></div>
 
-<h3>Контакты</h3>
-{% for u in users %}
-  <p><a href="/chat/{{u}}">{{u}}</a></p>
+<h3>Друзья</h3>
+{% for f in friends %}
+  <p><a href="/chat/{{f}}">{{f}}</a></p>
 {% endfor %}
 
 </div>
@@ -213,57 +214,33 @@ setInterval(pollNotifications, 4000);
 
   <form method="POST" action="/send/{{peer}}">
     <input name="msg">
-    <button>Send</button>
+    <button>Отправить</button>
   </form>
 
 {% endif %}
 
 </div>
 
-<script>
-function searchUser(){
-  let q = document.getElementById("q").value;
-
-  fetch("/search?q=" + q)
-    .then(r => r.json())
-    .then(d => {
-      let html = "";
-      d.results.forEach(u => {
-        html += `<div>${u} <button onclick="addContact('${u}')">+</button></div>`;
-      });
-      document.getElementById("results").innerHTML = html;
-    });
-}
-
-function addContact(u){
-  fetch("/add-contact", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({contact:u})
-  });
-}
-
-function loginGoogle(){
-  alert("Тут твой Firebase login (оставь как был)");
-}
-</script>
-
 </body>
 </html>
 """
 
+
 # ---------------- HOME ----------------
 @app.route("/")
 def home():
+    me = session.get("username")
+
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    c.execute("SELECT username FROM users")
-    users = [u[0] for u in c.fetchall() if u[0]]
+    c.execute("SELECT friend FROM friends WHERE user=?", (me,))
+    friends = [r[0] for r in c.fetchall()]
 
     conn.close()
 
-    return render_template_string(HTML, users=users, peer=None)
+    return render_template_string(HTML, friends=friends, peer=None)
+
 
 # ---------------- CHAT ----------------
 @app.route("/chat/<user>")
@@ -285,7 +262,8 @@ def chat(user):
     messages = c.fetchall()
     conn.close()
 
-    return render_template_string(HTML, users=[], peer=user, messages=messages)
+    return render_template_string(HTML, friends=[], peer=user, messages=messages)
+
 
 # ---------------- SEND ----------------
 @app.route("/send/<user>", methods=["POST"])
@@ -305,6 +283,7 @@ def send(user):
     conn.close()
 
     return redirect("/chat/" + user)
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
