@@ -52,10 +52,10 @@ body { font-family: Arial; display:flex; }
 
 <script>
 const firebaseConfig = {
-  apiKey: "ТВОЙ_API_KEY",
-  authDomain: "ТВОЙ_PROJECT.firebaseapp.com",
-  projectId: "ТВОЙ_PROJECT",
-  appId: "ТВОЙ_APP_ID"
+  apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
+  authDomain: "my-chat2-ae3ca.firebaseapp.com",
+  projectId: "my-chat2-ae3ca",
+  appId: "1:407628010061:web:72f3cb30760c52101cc204"
 };
 
 firebase.initializeApp(firebaseConfig);
