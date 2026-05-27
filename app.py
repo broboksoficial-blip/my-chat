@@ -70,7 +70,10 @@ function loginGoogle() {
       fetch("/google-login", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ name: user.displayName })
+        body: JSON.stringify({
+  name: user.displayName,
+  email: user.email
+})
       }).then(() => location.reload());
     });
 }
