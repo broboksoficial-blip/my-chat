@@ -1,65 +1,111 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, render_template_string
 
 app = Flask(__name__)
 
-messages = []
-
 HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Chat</title>
+</head>
+<body>
+
 <h2>💬 Чат</h2>
 
-<div id="chat"></div>
+<!-- LOGIN -->
+<div id="login">
+  <h3>Вход по номеру 📱</h3>
+  <input id="phone" placeholder="+79991234567">
+  <button onclick="sendCode()">Отправить код</button>
 
-<form id="form">
-  <input id="msg" autocomplete="off" placeholder="Сообщение">
-  <button>Отправить</button>
-</form>
+  <br><br>
+
+  <input id="code" placeholder="SMS код">
+  <button onclick="verifyCode()">Подтвердить</button>
+
+  <div id="recaptcha-container"></div>
+</div>
+
+<hr>
+
+<!-- CHAT -->
+<div id="chat" style="display:none;">
+  <h3>Чат 💬</h3>
+
+  <div id="messages"></div>
+
+  <input id="msg" placeholder="Сообщение">
+  <button onclick="sendMessage()">Отправить</button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 
 <script>
-async function loadMessages() {
-    const res = await fetch('/messages');
-    const data = await res.json();
-
-    let html = "";
-    data.forEach(m => {
-        html += "<p>" + m + "</p>";
-    });
-
-    document.getElementById("chat").innerHTML = html;
-}
-
-document.getElementById("form").onsubmit = async (e) => {
-    e.preventDefault();
-
-    const msg = document.getElementById("msg").value;
-
-    await fetch('/send', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({msg})
-    });
-
-    document.getElementById("msg").value = "";
-    loadMessages();
+// 🔥 ТВОЙ FIREBASE CONFIG
+const firebaseConfig = {
+  apiKey: "YOUR_KEY",
+  authDomain: "YOUR_DOMAIN",
+  projectId: "YOUR_ID",
+  appId: "YOUR_APP_ID"
 };
 
-setInterval(loadMessages, 1000);
-loadMessages();
+firebase.initializeApp(firebaseConfig);
+
+let confirmationResult;
+
+// reCAPTCHA
+window.recaptchaVerifier = new firebase.auth.RecaptchaVerifier('recaptcha-container', {
+  size: 'invisible'
+});
+
+// 📱 отправка SMS
+function sendCode() {
+  const phone = document.getElementById("phone").value;
+
+  firebase.auth().signInWithPhoneNumber(phone, window.recaptchaVerifier)
+    .then((result) => {
+      confirmationResult = result;
+      alert("Код отправлен!");
+    })
+    .catch((error) => {
+      alert(error.message);
+    });
+}
+
+// 🔐 проверка кода
+function verifyCode() {
+  const code = document.getElementById("code").value;
+
+  confirmationResult.confirm(code)
+    .then((result) => {
+      document.getElementById("login").style.display = "none";
+      document.getElementById("chat").style.display = "block";
+      alert("Вход выполнен!");
+    })
+    .catch((error) => {
+      alert("Неверный код");
+    });
+}
+
+// 💬 чат (пока локальный)
+function sendMessage() {
+  const msg = document.getElementById("msg").value;
+  const div = document.getElementById("messages");
+
+  div.innerHTML += "<p>" + msg + "</p>";
+  document.getElementById("msg").value = "";
+}
 </script>
+
+</body>
+</html>
 """
 
 @app.route("/")
 def home():
     return render_template_string(HTML)
-
-@app.route("/send", methods=["POST"])
-def send():
-    data = request.json
-    messages.append(data["msg"])
-    return "ok"
-
-@app.route("/messages")
-def get_messages():
-    return jsonify(messages)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
