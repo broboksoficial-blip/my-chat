@@ -314,6 +314,8 @@ body {
     display: flex;
     margin: 0;
     height: 100vh;
+    background: var(--bg);
+    color: var(--text);
 }
 .chat-header {
     padding: 15px;
