@@ -81,9 +81,7 @@ def google_login():
     session["email"] = email
     session["name"] = name
     session["user_id"] = user_id
-
-    if username:
-        session["username"] = username
+    session["username"] = username  # 👈 ВСЕГДА сохраняем (даже None)
 
     return jsonify({"ok": True})
 
@@ -241,23 +239,24 @@ def home():
     c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
+    conn.close()
+
     if not row:
-        conn.close()
         return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
 
     username, user_id = row
 
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
+    session["user_id"] = user_id
+    session["username"] = username
 
-    # если username нет → просто показываем кнопку
-    if username is None:
-        friends = []
-    else:
+    friends = []
+
+    if username:
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
         c.execute("SELECT friend FROM friends WHERE user=?", (username,))
         friends = [r[0] for r in c.fetchall()]
-
-    conn.close()
+        conn.close()
 
     return render_template_string(
         HTML,
