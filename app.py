@@ -571,6 +571,17 @@ function loginGoogle(){
 <a href="/set-username">Set username</a>
 
 {% elif not peer %}
+<div class="chat-header">
+    <button onclick="toggleMenu()" style="
+    font-size:22px;
+    background:none;
+    border:none;
+    color:white;
+    cursor:pointer;
+    ">
+        ☰
+    </button>
+</div>
 
 <h2>Welcome {{session.get("username")}}</h2>
 <p>Select chat</p>
