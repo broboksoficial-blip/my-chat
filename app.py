@@ -265,6 +265,29 @@ def home():
         peer=None,
         my_id=user_id
     )
+# ---------------- Settings ----------------
+@app.route("/settings")
+def settings():
+    if not session.get("email"):
+        return redirect("/")
+
+    return render_template_string("""
+    <h2>⚙️ Настройки</h2>
+
+    <p>📧 Email: {{email}}</p>
+    <p>👤 Username: {{username}}</p>
+    <p>🆔 ID: {{user_id}}</p>
+
+    <hr>
+
+    <a href="/set-username">✏️ Изменить username</a><br><br>
+    <a href="/logout">🚪 Выйти</a><br><br>
+    <a href="/">⬅️ Назад</a>
+    """,
+    email=session.get("email"),
+    username=session.get("username"),
+    user_id=session.get("user_id")
+    )
 
 # ---------------- HTML ----------------
 HTML = """
