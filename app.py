@@ -501,6 +501,23 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
+firebase.auth().onAuthStateChanged(user => {
+    if(user){
+        fetch("/google-login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                name: user.displayName,
+                email: user.email
+            })
+        })
+        .then(() => {
+            if(window.location.pathname == "/"){
+                location.reload();
+            }
+        });
+    }
+});
 
 function loginGoogle(){
   const provider = new firebase.auth.GoogleAuthProvider();
