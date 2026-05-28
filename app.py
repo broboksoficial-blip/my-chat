@@ -1,6 +1,6 @@
 from flask import Flask, request, render_template_string, session, redirect, jsonify
 import sqlite3
-
+import random
 app = Flask(__name__)
 app.secret_key = "chat_secret"
 
@@ -52,10 +52,32 @@ def google_login():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
+    # проверяем есть ли уже пользователь
     c.execute("""
-    INSERT OR IGNORE INTO users (email, name)
-    VALUES (?, ?)
-    """, (data["email"], data["name"]))
+    SELECT user_id FROM users
+    WHERE email=?
+    """, (data["email"],))
+
+    user = c.fetchone()
+
+    # если нет — создаем ID
+    if not user:
+
+        while True:
+            new_id = str(random.randint(100000, 999999))
+
+            c.execute("""
+            SELECT user_id FROM users
+            WHERE user_id=?
+            """, (new_id,))
+
+            if not c.fetchone():
+                break
+
+        c.execute("""
+        INSERT INTO users (email, name, user_id)
+        VALUES (?, ?, ?)
+        """, (data["email"], data["name"], new_id))
 
     conn.commit()
     conn.close()
