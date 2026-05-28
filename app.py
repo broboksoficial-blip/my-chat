@@ -441,7 +441,7 @@ body.dark {
 </head>
 
 <body>
-<div id="menu" style="display:none; position:fixed; left:0; top:0; width:200px; height:100%; background:#eee; padding:10px;">
+<div id="menu" style="display:none; position:fixed; left:0; top:0; width:220px; height:100%; background:#eee; padding:10px; z-index:9999;">
     <img src="{{session.get('photo')}}" width="60" style="border-radius:50%;">
     <p>{{session.get("username")}}</p>
     <p>ID: {{my_id}}</p>
@@ -627,7 +627,7 @@ if(localStorage.getItem("theme") === "dark"){
 function toggleMenu(){
     let menu = document.getElementById("menu");
 
-    if(menu.style.display === "none"){
+    if(menu.style.display === "none" || menu.style.display === ""){
         menu.style.display = "block";
     } else {
         menu.style.display = "none";
