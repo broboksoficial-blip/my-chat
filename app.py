@@ -57,16 +57,16 @@ def google_login():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    # ищем пользователя
+    # всегда проверяем пользователя
     c.execute("SELECT user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
     # если нет — создаём
-    if not row:
+    if row is None:
         while True:
             new_id = str(random.randint(100000, 999999))
 
-            c.execute("SELECT user_id FROM users WHERE user_id=?", (new_id,))
+            c.execute("SELECT 1 FROM users WHERE user_id=?", (new_id,))
             if not c.fetchone():
                 break
 
@@ -75,11 +75,11 @@ def google_login():
         VALUES (?, ?, ?, ?)
         """, (email, name, None, new_id))
 
-    conn.commit()
+        conn.commit()
+
     conn.close()
 
     return jsonify({"ok": True})
-
 
 # ---------------- SET USERNAME ----------------
 @app.route("/set-username", methods=["GET", "POST"])
@@ -313,15 +313,18 @@ def home():
     c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
+    conn.close()
+
     if not row:
-        conn.close()
         return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
 
     username, my_id = row
 
-    # если username ещё не создан
-    if not username:
+    if username is None:
         username = "no-username"
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
 
     c.execute("SELECT friend FROM friends WHERE user=?", (username,))
     friends = [r[0] for r in c.fetchall()]
