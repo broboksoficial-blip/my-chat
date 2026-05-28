@@ -52,32 +52,19 @@ def google_login():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    # проверяем есть ли уже пользователь
-    c.execute("""
-    SELECT user_id FROM users
-    WHERE email=?
-    """, (data["email"],))
+    # проверяем есть ли пользователь
+    c.execute("SELECT user_id FROM users WHERE email=?", (data["email"],))
+    row = c.fetchone()
 
-    user = c.fetchone()
-
-    # если нет — создаем ID
-    if not user:
-
-        while True:
-            new_id = str(random.randint(100000, 999999))
-
-            c.execute("""
-            SELECT user_id FROM users
-            WHERE user_id=?
-            """, (new_id,))
-
-            if not c.fetchone():
-                break
+    # если нет пользователя → создаём полностью
+    if not row:
+        import random
+        new_id = str(random.randint(100000, 999999))
 
         c.execute("""
-        INSERT INTO users (email, name, user_id)
-        VALUES (?, ?, ?)
-        """, (data["email"], data["name"], new_id))
+        INSERT INTO users (email, name, username, user_id)
+        VALUES (?, ?, ?, ?)
+        """, (data["email"], data["name"], None, new_id))
 
     conn.commit()
     conn.close()
