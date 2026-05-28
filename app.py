@@ -41,8 +41,21 @@ def init_db():
     conn.close()
 
 init_db()
+# ---------------- settings ----------------
+@app.route("/settings")
+def settings():
+    if not session.get("email"):
+        return redirect("/")
 
+    return """
+    <h2>⚙️ Настройки</h2>
 
+    <p>Аккаунт: {}</p>
+
+    <a href="/change-username">✏️ Изменить username</a><br><br>
+
+    <a href="/logout">🚪 Выйти</a>
+    """.format(session.get("email"))
 # ---------------- GOOGLE LOGIN ----------------
 @app.route("/google-login", methods=["POST"])
 def google_login():
