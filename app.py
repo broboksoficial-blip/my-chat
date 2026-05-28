@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template_string, session, redirect, jsonify
 import sqlite3
 import random
+
 app = Flask(__name__)
 app.secret_key = "chat_secret"
 
@@ -16,7 +17,7 @@ def init_db():
         email TEXT UNIQUE,
         name TEXT,
         username TEXT UNIQUE,
-user_id TEXT UNIQUE
+        user_id TEXT UNIQUE
     )
     """)
 
@@ -41,6 +42,7 @@ user_id TEXT UNIQUE
 
 init_db()
 
+
 # ---------------- GOOGLE LOGIN ----------------
 @app.route("/google-login", methods=["POST"])
 def google_login():
@@ -52,13 +54,10 @@ def google_login():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    # проверяем есть ли пользователь
     c.execute("SELECT user_id FROM users WHERE email=?", (data["email"],))
     row = c.fetchone()
 
-    # если нет пользователя → создаём полностью
     if not row:
-        import random
         new_id = str(random.randint(100000, 999999))
 
         c.execute("""
@@ -100,48 +99,7 @@ def set_username():
         <button>Save</button>
     </form>
     """
-# ---------------- CHANGE USERNAME ----------------
-@app.route("/change-username", methods=["GET", "POST"])
-def change_username():
-    if not session.get("email"):
-        return redirect("/")
 
-    if request.method == "POST":
-        new_username = request.form["username"]
-        email = session.get("email")
-
-        conn = sqlite3.connect(DB)
-        c = conn.cursor()
-
-        c.execute("""
-        SELECT username FROM users
-        WHERE username=?
-        """, (new_username,))
-
-        if c.fetchone():
-            conn.close()
-            return "❌ Username уже занят"
-
-        c.execute("""
-        UPDATE users
-        SET username=?
-        WHERE email=?
-        """, (new_username, email))
-
-        conn.commit()
-        conn.close()
-
-        session["username"] = new_username
-
-        return redirect("/")
-
-    return """
-    <form method="POST">
-        <h3>Изменить username</h3>
-        <input name="username" placeholder="новый username">
-        <button>Сохранить</button>
-    </form>
-    """
 
 # ---------------- SEARCH ----------------
 @app.route("/search")
@@ -158,12 +116,11 @@ def search():
     """, (f"%{q}%", f"%{q}%"))
 
     res = c.fetchall()
-
     conn.close()
 
     return jsonify({"results": res})
-if not row:
-    return "user not found"
+
+
 # ---------------- ADD FRIEND ----------------
 @app.route("/add-friend", methods=["POST"])
 def add_friend():
@@ -186,52 +143,20 @@ def add_friend():
     return jsonify({"ok": True})
 
 
-# ---------------- HOME ----------------
+# ---------------- HOME HTML ----------------
 HTML = """
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <title>Chat</title>
-
 <style>
-body {
-    font-family: Arial;
-    display:flex;
-    margin:0;
-}
-
-.left {
-    width:250px;
-    background:#eeeeee;
-    padding:10px;
-    height:100vh;
-    overflow:auto;
-}
-
-.chat {
-    flex:1;
-    padding:20px;
-}
-
-.msg {
-    margin:5px 0;
-    padding:8px;
-    background:#f5f5f5;
-    border-radius:10px;
-}
-
-input {
-    padding:8px;
-}
-
-button {
-    padding:8px;
-    cursor:pointer;
-}
+body { font-family: Arial; display:flex; margin:0; }
+.left { width:250px; background:#eee; padding:10px; height:100vh; overflow:auto; }
+.chat { flex:1; padding:20px; }
+.msg { margin:5px 0; padding:8px; background:#f5f5f5; border-radius:10px; }
 </style>
 </head>
-
 <body>
 
 <script>
@@ -241,41 +166,27 @@ function searchUser(){
     fetch("/search?q=" + q)
     .then(r => r.json())
     .then(d => {
-
         let html = "";
 
         d.results.forEach(u => {
-
-    html += `
-        <div style="margin:5px 0;">
-            ${u[0]} (#${u[1]})
-
-            <button onclick="addFriend('${u[0]}')">
-                +
-            </button>
-        </div>
-    `;
-});
+            html += `
+                <div>
+                    ${u[0]} (#${u[1]})
+                    <button onclick="addFriend('${u[0]}')">+</button>
+                </div>
+            `;
+        });
 
         document.getElementById("results").innerHTML = html;
     });
 }
 
 function addFriend(u){
-
     fetch("/add-friend", {
         method:"POST",
-        headers:{
-            "Content-Type":"application/json"
-        },
-        body:JSON.stringify({
-            username:u
-        })
-
-    }).then(() => {
-        alert("Добавлено");
-        location.reload();
-    });
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({username:u})
+    }).then(() => location.reload());
 }
 </script>
 
@@ -283,22 +194,13 @@ function addFriend(u){
 
 {% if session.get("username") %}
 
-<h3>
-👤 {{session.get("username")}}
-</h3>
+<h3>👤 {{session.get("username")}}</h3>
 
-<p>
-ID: {{my_id}}
-</p>
-
-<a href="/change-username">
-✏️ Изменить username
-</a>
+<p>ID: {{my_id}}</p>
 
 <hr>
 
 <h3>🔍 Поиск</h3>
-
 <input id="q" placeholder="username">
 <button onclick="searchUser()">Найти</button>
 
@@ -309,11 +211,7 @@ ID: {{my_id}}
 <h3>💬 Друзья</h3>
 
 {% for f in friends %}
-<p>
-<a href="/chat/{{f}}">
-{{f}}
-</a>
-</p>
+<p><a href="/chat/{{f}}">{{f}}</a></p>
 {% endfor %}
 
 {% endif %}
@@ -325,49 +223,61 @@ ID: {{my_id}}
 {% if not session.get("email") %}
 
 <h2>Вход</h2>
+<button onclick="loginGoogle()">Google Login</button>
 
-<p>
-Сначала войди через Google
-</p>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
+  authDomain: "my-chat2-ae3ca.firebaseapp.com",
+  projectId: "my-chat2-ae3ca",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+function loginGoogle(){
+  const provider = new firebase.auth.GoogleAuthProvider();
+
+  firebase.auth().signInWithPopup(provider)
+  .then(result => {
+      const user = result.user;
+
+      return fetch("/google-login", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          name:user.displayName,
+          email:user.email
+        })
+      });
+  })
+  .then(() => window.location.href="/set-username");
+}
+</script>
 
 {% elif not session.get("username") %}
 
 <h2>Создай username</h2>
-
-<a href="/set-username">
-Создать username
-</a>
+<a href="/set-username">Создать</a>
 
 {% elif not peer %}
 
-<h2>
-Привет {{session.get("username")}} 👋
-</h2>
-
-<p>
-Выбери чат слева
-</p>
+<h2>Привет {{session.get("username")}}</h2>
+<p>Выбери чат</p>
 
 {% else %}
 
 <h2>Чат с {{peer}}</h2>
 
 {% for m in messages %}
-
-<div class="msg">
-<b>{{m[0]}}</b>: {{m[1]}}
-</div>
-
+<div class="msg"><b>{{m[0]}}</b>: {{m[1]}}</div>
 {% endfor %}
 
 <form method="POST" action="/send/{{peer}}">
-
-<input name="msg" placeholder="Сообщение">
-
-<button>
-Отправить
-</button>
-
+<input name="msg">
+<button>Отправить</button>
 </form>
 
 {% endif %}
@@ -414,8 +324,7 @@ def home():
         peer=None,
         my_id=my_id
     )
-if not row:
-    return "user not found"
+
 
 # ---------------- CHAT ----------------
 @app.route("/chat/<user>")
