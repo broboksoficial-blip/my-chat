@@ -518,7 +518,6 @@ function loginGoogle(){
 
     <div class="chat-actions">
         <a href="/" class="btn">⬅ Назад</a>
-        <a href="/logout" class="btn">🚪 Выйти</a>
     </div>
 </div>
 
