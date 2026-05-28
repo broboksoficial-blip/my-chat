@@ -334,7 +334,7 @@ body {
     --header: #4a76a8;
 }
 
-.dark {
+body.dark {
     --bg: #0f0f0f;
     --text: white;
     --left: #1b1b1b;
