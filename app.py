@@ -62,8 +62,11 @@ def google_login():
     row = c.fetchone()
 
     if row is None:
-        # создаём нового пользователя
-        new_id = str(random.randint(100000, 999999))
+        while True:
+            new_id = str(random.randint(100000, 999999))
+            c.execute("SELECT 1 FROM users WHERE user_id=?", (new_id,))
+            if not c.fetchone():
+                break
 
         c.execute("""
         INSERT INTO users (email, name, username, user_id)
@@ -71,8 +74,17 @@ def google_login():
         """, (email, name, None, new_id))
 
         conn.commit()
+        username = None
+        user_id = new_id
+    else:
+        user_id, username = row
 
     conn.close()
+
+    session["user_id"] = user_id
+    if username:
+        session["username"] = username
+
     return jsonify({"ok": True})
 
 
@@ -89,16 +101,7 @@ def set_username():
         conn = sqlite3.connect(DB)
         c = conn.cursor()
 
-        # проверка занятости
-        c.execute("SELECT 1 FROM users WHERE username=?", (username,))
-        if c.fetchone():
-            return "❌ Username уже занят"
-
-        c.execute("""
-        UPDATE users
-        SET username=?
-        WHERE email=?
-        """, (username, email))
+        c.execute("UPDATE users SET username=? WHERE email=?", (username, email))
 
         conn.commit()
         conn.close()
@@ -107,55 +110,12 @@ def set_username():
         return redirect("/")
 
     return """
+    <h2>Создать username</h2>
     <form method="POST">
         <input name="username" placeholder="username">
-        <button>Save</button>
+        <button>OK</button>
     </form>
     """
-
-
-# ---------------- CHANGE USERNAME ----------------
-@app.route("/change-username", methods=["GET", "POST"])
-def change_username():
-    if not session.get("email"):
-        return redirect("/")
-
-    if request.method == "POST":
-        new_username = request.form["username"]
-        email = session["email"]
-
-        conn = sqlite3.connect(DB)
-        c = conn.cursor()
-
-        c.execute("SELECT 1 FROM users WHERE username=?", (new_username,))
-        if c.fetchone():
-            return "❌ Username уже занят"
-
-        c.execute("""
-        UPDATE users
-        SET username=?
-        WHERE email=?
-        """, (new_username, email))
-
-        conn.commit()
-        conn.close()
-
-        session["username"] = new_username
-        return redirect("/")
-
-    return """
-    <form method="POST">
-        <input name="username" placeholder="новый username">
-        <button>Сохранить</button>
-    </form>
-    """
-
-
-# ---------------- LOGOUT ----------------
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect("/")
 
 
 # ---------------- SEARCH ----------------
@@ -172,7 +132,10 @@ def search():
     OR user_id LIKE ?
     """, (f"%{q}%", f"%{q}%"))
 
-    return jsonify({"results": c.fetchall()})
+    res = c.fetchall()
+    conn.close()
+
+    return jsonify({"results": res})
 
 
 # ---------------- ADD FRIEND ----------------
@@ -184,7 +147,7 @@ def add_friend():
     other = data["username"]
 
     if not me:
-        return jsonify({"error": "not logged"}), 400
+        return jsonify({"ok": False})
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -195,46 +158,6 @@ def add_friend():
     conn.close()
 
     return jsonify({"ok": True})
-
-
-# ---------------- HOME ----------------
-@app.route("/")
-def home():
-    email = session.get("email")
-
-    if not email:
-        return "LOGIN FIRST"
-
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-
-    c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
-    row = c.fetchone()
-
-    if not row:
-        return "NO USER (refresh after login)"
-
-    username, user_id = row
-
-    if username:
-        session["username"] = username
-
-    c.execute("SELECT friend FROM friends WHERE user=?", (username,))
-    friends = [r[0] for r in c.fetchall()]
-
-    return f"""
-    <h2>👤 {username or "NO USERNAME"}</h2>
-    <p>ID: {user_id}</p>
-
-    <a href="/set-username">Set username</a><br>
-    <a href="/change-username">Change username</a><br>
-    <a href="/logout">Logout</a>
-
-    <hr>
-
-    <h3>Friends:</h3>
-    {friends}
-    """
 
 
 # ---------------- CHAT ----------------
@@ -251,19 +174,13 @@ def chat(user):
     SELECT sender, message FROM messages
     WHERE (sender=? AND receiver=?)
     OR (sender=? AND receiver=?)
+    ORDER BY id
     """, (me, user, user, me))
 
-    msgs = c.fetchall()
+    messages = c.fetchall()
+    conn.close()
 
-    return f"""
-    <h2>Chat with {user}</h2>
-    <pre>{msgs}</pre>
-
-    <form method="POST" action="/send/{user}">
-        <input name="msg">
-        <button>Send</button>
-    </form>
-    """
+    return render_template_string(HTML, friends=[], peer=user, messages=messages, my_id=session.get("user_id"))
 
 
 # ---------------- SEND ----------------
@@ -284,6 +201,155 @@ def send(user):
     conn.close()
 
     return redirect("/chat/" + user)
+
+
+# ---------------- LOGOUT ----------------
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
+
+
+# ---------------- HOME ----------------
+@app.route("/")
+def home():
+    email = session.get("email")
+
+    if not email:
+        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST")
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
+    row = c.fetchone()
+
+    if not row:
+        conn.close()
+        return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
+
+    username, user_id = row
+
+    if username:
+        session["username"] = username
+
+    c.execute("SELECT friend FROM friends WHERE user=?", (username,))
+    friends = [r[0] for r in c.fetchall()]
+
+    conn.close()
+
+    return render_template_string(
+        HTML,
+        friends=friends,
+        peer=None,
+        my_id=user_id
+    )
+
+
+# ---------------- HTML ----------------
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Chat</title>
+<style>
+body { font-family: Arial; display:flex; margin:0; }
+.left { width:250px; background:#eee; padding:10px; height:100vh; overflow:auto; }
+.chat { flex:1; padding:20px; }
+.msg { margin:5px 0; padding:8px; background:#f5f5f5; border-radius:10px; }
+</style>
+</head>
+
+<body>
+
+<script>
+function searchUser(){
+    let q = document.getElementById("q").value;
+
+    fetch("/search?q=" + q)
+    .then(r => r.json())
+    .then(d => {
+        let html = "";
+        d.results.forEach(u => {
+            html += `
+                <div>
+                    ${u[0]} (#${u[1]})
+                    <button onclick="addFriend('${u[0]}')">+</button>
+                </div>
+            `;
+        });
+        document.getElementById("results").innerHTML = html;
+    });
+}
+
+function addFriend(u){
+    fetch("/add-friend", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({username:u})
+    }).then(() => location.reload());
+}
+</script>
+
+<div class="left">
+
+{% if session.get("username") %}
+<h3>👤 {{session.get("username")}}</h3>
+<p>ID: {{my_id}}</p>
+
+<a href="/logout">Logout</a>
+
+<hr>
+
+<h3>🔍 Search</h3>
+<input id="q">
+<button onclick="searchUser()">Find</button>
+<div id="results"></div>
+
+<hr>
+
+<h3>💬 Friends</h3>
+{% for f in friends %}
+<p><a href="/chat/{{f}}">{{f}}</a></p>
+{% endfor %}
+
+{% endif %}
+
+</div>
+
+<div class="chat">
+
+{% if not session.get("email") %}
+<h2>Login first</h2>
+
+{% elif not session.get("username") %}
+<h2>Create username</h2>
+<a href="/set-username">Set username</a>
+
+{% elif not peer %}
+<h2>Welcome {{session.get("username")}}</h2>
+<p>Select chat</p>
+
+{% else %}
+<h2>Chat with {{peer}}</h2>
+
+{% for m in messages %}
+<div class="msg"><b>{{m[0]}}</b>: {{m[1]}}</div>
+{% endfor %}
+
+<form method="POST" action="/send/{{peer}}">
+<input name="msg">
+<button>Send</button>
+</form>
+
+{% endif %}
+
+</div>
+
+</body>
+</html>
+"""
 
 
 if __name__ == "__main__":
