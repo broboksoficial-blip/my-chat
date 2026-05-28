@@ -334,18 +334,14 @@ def home():
     c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
-    conn.close()
-
     if not row:
+        conn.close()
         return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
 
     username, my_id = row
 
-    if username is None:
-        username = "no-username"
-
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
+    # 🔥 ВАЖНО: сохраняем в session
+    session["username"] = username if username else None
 
     c.execute("SELECT friend FROM friends WHERE user=?", (username,))
     friends = [r[0] for r in c.fetchall()]
@@ -364,6 +360,8 @@ def home():
 @app.route("/chat/<user>")
 def chat(user):
     me = session.get("username")
+if not me:
+    return redirect("/")
     if not me:
         return redirect("/")
 
