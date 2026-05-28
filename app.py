@@ -550,17 +550,9 @@ function loginGoogle(){
   })
   .then(() => {
       window.location.href = "/";
-  });
+  })
+  .catch(err => console.error(err));
 }
-
-});
-
-function loginGoogle(){
-  const provider = new firebase.auth.GoogleAuthProvider();
-
-  firebase.auth().signInWithPopup(provider)
-  .then(result => {
-      const user = result.user;
 
       return fetch("/google-login", {
         method: "POST",
