@@ -432,9 +432,17 @@ function loginGoogle(){
 <div class="msg"><b>{{m[0]}}</b>: {{m[1]}}</div>
 {% endfor %}
 
-<form method="POST" action="/send/{{peer}}">
-<input name="msg">
-<button>Send</button>
+<div class="chat-box">
+    {% for m in messages %}
+        <div class="msg">
+            <b>{{m[0]}}</b>: {{m[1]}}
+        </div>
+    {% endfor %}
+</div>
+
+<form class="input-bar" method="POST" action="/send/{{peer}}">
+    <input name="msg" placeholder="Написать сообщение..." autocomplete="off">
+    <button>➤</button>
 </form>
 
 {% endif %}
