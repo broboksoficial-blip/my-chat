@@ -441,6 +441,16 @@ body.dark {
 </head>
 
 <body>
+<div id="menu" style="display:none; position:fixed; left:0; top:0; width:200px; height:100%; background:#eee; padding:10px;">
+    <img src="{{session.get('photo')}}" width="60" style="border-radius:50%;">
+    <p>{{session.get("username")}}</p>
+    <p>ID: {{my_id}}</p>
+
+    <hr>
+
+    <a href="/settings">Настройки</a><br>
+    <a href="/logout">Выйти</a>
+</div>
 
 <script>
 function searchUser(){
