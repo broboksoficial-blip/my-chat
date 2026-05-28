@@ -530,25 +530,28 @@ const firebaseConfig = {
 };
 
 firebase.initializeApp(firebaseConfig);
-firebase.auth().onAuthStateChanged(user => {
 
-    if(user && !sessionStorage.getItem("logged")){
+function loginGoogle(){
+  const provider = new firebase.auth.GoogleAuthProvider();
 
-        sessionStorage.setItem("logged", "1");
+  firebase.auth().signInWithPopup(provider)
+  .then(result => {
+      const user = result.user;
 
-        fetch("/google-login", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({
-                name: user.displayName,
-                email: user.email,
-                photo: user.photoURL
-            })
+      return fetch("/google-login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            name: user.displayName,
+            email: user.email,
+            photo: user.photoURL
         })
-        .then(() => {
-            window.location.href = "/";
-        });
-    }
+      });
+  })
+  .then(() => {
+      window.location.href = "/";
+  });
+}
 
 });
 
