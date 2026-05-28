@@ -394,22 +394,23 @@ ID: {{my_id}}
 # ---------------- HOME ----------------
 @app.route("/")
 def home():
-    me = session.get("username")
+    email = session.get("email")
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    c.execute("SELECT friend FROM friends WHERE user=?", (me,))
-    friends = [r[0] for r in c.fetchall()]
-
     c.execute("""
-    SELECT user_id FROM users
-    WHERE username=?
-    """, (me,))
+    SELECT username, user_id FROM users
+    WHERE email=?
+    """, (email,))
 
     row = c.fetchone()
 
-    my_id = row[0] if row else "unknown"
+    username = row[0] if row else None
+    my_id = row[1] if row else "unknown"
+
+    c.execute("SELECT friend FROM friends WHERE user=?", (username,))
+    friends = [r[0] for r in c.fetchall()]
 
     conn.close()
 
