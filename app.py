@@ -531,21 +531,25 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 firebase.auth().onAuthStateChanged(user => {
-    if(user){
+
+    if(user && !sessionStorage.getItem("logged")){
+
+        sessionStorage.setItem("logged", "1");
+
         fetch("/google-login", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({
                 name: user.displayName,
-                email: user.email
+                email: user.email,
+                photo: user.photoURL
             })
         })
         .then(() => {
-            if(window.location.pathname == "/"){
-                location.reload();
-            }
+            window.location.href = "/";
         });
     }
+
 });
 
 function loginGoogle(){
