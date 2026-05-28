@@ -486,21 +486,6 @@ z-index:99999;
 {% endif %}
 
 </div>
-<div style="
-padding:10px;
-background:var(--header);
-color:white;
-">
-    <button onclick="toggleMenu()" style="
-    font-size:22px;
-    background:none;
-    border:none;
-    color:white;
-    cursor:pointer;
-    ">
-        ☰
-    </button>
-</div>
 
 <script>
 function searchUser(){
