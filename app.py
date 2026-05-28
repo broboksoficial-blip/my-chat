@@ -166,15 +166,15 @@ def search():
 
     c.execute("""
     SELECT username, user_id FROM users
-    WHERE user_id LIKE ?
-    """, (f"%{q}%",))
+    WHERE username LIKE ?
+    OR user_id LIKE ?
+    """, (f"%{q}%", f"%{q}%"))
 
     res = c.fetchall()
 
     conn.close()
 
     return jsonify({"results": res})
-
 
 # ---------------- ADD FRIEND ----------------
 @app.route("/add-friend", methods=["POST"])
