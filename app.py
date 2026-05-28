@@ -249,9 +249,10 @@ def logout():
 
     <script>
     const firebaseConfig = {
-      apiKey: "ТВОЙ_API_KEY",
+      apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
       authDomain: "my-chat2-ae3ca.firebaseapp.com",
       projectId: "my-chat2-ae3ca",
+      appId: "1:407628010061:web:72f3cb30760c52101cc204"
     };
 
     firebase.initializeApp(firebaseConfig);
