@@ -258,13 +258,16 @@ function searchUser(){
 
         d.results.forEach(u => {
 
-            html += `
-                <div style="margin:5px 0;">
-                    ${u}
-                    <button onclick="addFriend('${u}')">+</button>
-                </div>
-            `;
-        });
+    html += `
+        <div style="margin:5px 0;">
+            ${u[0]} (#${u[1]})
+
+            <button onclick="addFriend('${u[0]}')">
+                +
+            </button>
+        </div>
+    `;
+});
 
         document.getElementById("results").innerHTML = html;
     });
