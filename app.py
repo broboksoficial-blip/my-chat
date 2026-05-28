@@ -361,7 +361,7 @@ body {
 /* левая панель */
 .left {
     width: 250px;
-    background: #eee;
+    background: var(--left);
     padding: 10px;
     overflow: auto;
 }
