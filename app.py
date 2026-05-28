@@ -341,7 +341,43 @@ function addFriend(u){
 <div class="chat">
 
 {% if not session.get("email") %}
-<h2>Login first</h2>
+<h2>Вход</h2>
+
+<button onclick="loginGoogle()">Войти через Google</button>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
+  authDomain: "my-chat2-ae3ca.firebaseapp.com",
+  projectId: "my-chat2-ae3ca",
+};
+
+firebase.initializeApp(firebaseConfig);
+
+function loginGoogle(){
+  const provider = new firebase.auth.GoogleAuthProvider();
+
+  firebase.auth().signInWithPopup(provider)
+  .then(result => {
+      const user = result.user;
+
+      return fetch("/google-login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          name: user.displayName,
+          email: user.email
+        })
+      });
+  })
+  .then(() => {
+      window.location.href = "/";
+  });
+}
+</script>
 
 {% elif not session.get("username") %}
 <h2>Create username</h2>
