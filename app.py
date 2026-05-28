@@ -307,6 +307,7 @@ HTML = """
 <head>
 <meta charset="UTF-8">
 <title>Chat</title>
+
 <style>
 body {
     font-family: Arial;
@@ -331,13 +332,14 @@ body {
     height: 100vh;
 }
 
-/* сообщения */
+/* блок сообщений */
 .chat-box {
     flex: 1;
     overflow-y: auto;
     padding: 20px;
 }
 
+/* сообщение */
 .msg {
     margin: 5px 0;
     padding: 8px;
@@ -345,7 +347,7 @@ body {
     border-radius: 10px;
 }
 
-/* поле ввода снизу */
+/* нижняя панель */
 .input-bar {
     display: flex;
     padding: 10px;
@@ -409,17 +411,15 @@ function addFriend(u){
 <h3>👤 {{session.get("username")}}</h3>
 <p>ID: {{my_id}}</p>
 
-<a href="/settings">⚙️ Настройки</a>
-
+<a href="/settings">⚙️ Настройки</a><br>
 <a href="/logout">🚪 Выйти</a>
-
-<a href="/logout">Logout</a>
 
 <hr>
 
-<h3>🔍 Search</h3>
-<input id="q">
+<h3>🔍 Поиск</h3>
+<input id="q" placeholder="username">
 <button onclick="searchUser()">Find</button>
+
 <div id="results"></div>
 
 <hr>
@@ -436,6 +436,7 @@ function addFriend(u){
 <div class="chat">
 
 {% if not session.get("email") %}
+
 <h2>Вход</h2>
 
 <button onclick="loginGoogle()">Войти через Google</button>
@@ -475,28 +476,18 @@ function loginGoogle(){
 </script>
 
 {% elif not session.get("username") %}
+
 <h2>Create username</h2>
 <a href="/set-username">Set username</a>
 
 {% elif not peer %}
+
 <h2>Welcome {{session.get("username")}}</h2>
 <p>Select chat</p>
 
 {% else %}
+
 <h2>Chat with {{peer}}</h2>
-
-<div class="chat-box">
-    {% for m in messages %}
-        <div class="msg">
-            <b>{{m[0]}}</b>: {{m[1]}}
-        </div>
-    {% endfor %}
-</div>
-
-<form class="input-bar" method="POST" action="/send/{{peer}}">
-    <input name="msg" placeholder="Написать сообщение..." autocomplete="off">
-    <button>➤</button>
-</form>
 
 <div class="chat-box">
     {% for m in messages %}
