@@ -217,6 +217,14 @@ function addFriend(u){
 
 {% if session.get("username") %}
 
+<h3>
+👤 {{session.get("username")}}
+</h3>
+
+<a href="/settings">
+⚙️ Настройки
+</a>
+
 <h3>👤 {{session.get("username")}}</h3>
 
 <p>ID: {{my_id}}</p>
