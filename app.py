@@ -542,14 +542,18 @@ function loginGoogle(){
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-    name: user.displayName,
-    email: user.email,
-    photo: user.photoURL
-})
+            name: user.displayName,
+            email: user.email,
+            photo: user.photoURL
+        })
       });
   })
   .then(() => {
       window.location.href = "/";
+  })
+  .catch(err => {
+      console.error("LOGIN ERROR:", err);
+      alert("Ошибка входа — смотри F12 Console");
   });
 }
 </script>
