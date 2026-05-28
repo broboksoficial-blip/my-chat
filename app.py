@@ -324,7 +324,21 @@ body {
     align-items: center;
     font-weight: bold;
 }
+:root {
+    --bg: white;
+    --text: black;
+    --left: #eeeeee;
+    --msg: #f5f5f5;
+    --header: #4a76a8;
+}
 
+.dark {
+    --bg: #0f0f0f;
+    --text: white;
+    --left: #1b1b1b;
+    --msg: #2a2a2a;
+    --header: #202020;
+}
 .chat-actions {
     display: flex;
     gap: 10px;
