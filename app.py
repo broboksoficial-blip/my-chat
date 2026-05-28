@@ -216,7 +216,7 @@ def home():
     email = session.get("email")
 
     if not email:
-        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST")
+        return render_template_string(HTML, friends=[], peer=None, my_id="—")
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -224,14 +224,18 @@ def home():
     c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
+    conn.close()
+
     if not row:
-        conn.close()
-        return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
+        return render_template_string(HTML, friends=[], peer=None, my_id="—")
 
     username, user_id = row
 
     if username:
         session["username"] = username
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
 
     c.execute("SELECT friend FROM friends WHERE user=?", (username,))
     friends = [r[0] for r in c.fetchall()]
@@ -244,7 +248,6 @@ def home():
         peer=None,
         my_id=user_id
     )
-
 
 # ---------------- HTML ----------------
 HTML = """
