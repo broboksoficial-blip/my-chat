@@ -552,9 +552,10 @@ function loginGoogle(){
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-          name: user.displayName,
-          email: user.email
-        })
+    name: user.displayName,
+    email: user.email,
+    photo: user.photoURL
+})
       });
   })
   .then(() => {
