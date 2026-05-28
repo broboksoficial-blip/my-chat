@@ -308,10 +308,67 @@ HTML = """
 <meta charset="UTF-8">
 <title>Chat</title>
 <style>
-body { font-family: Arial; display:flex; margin:0; }
-.left { width:250px; background:#eee; padding:10px; height:100vh; overflow:auto; }
-.chat { flex:1; padding:20px; }
-.msg { margin:5px 0; padding:8px; background:#f5f5f5; border-radius:10px; }
+body {
+    font-family: Arial;
+    display: flex;
+    margin: 0;
+    height: 100vh;
+}
+
+/* левая панель */
+.left {
+    width: 250px;
+    background: #eee;
+    padding: 10px;
+    overflow: auto;
+}
+
+/* чат */
+.chat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* сообщения */
+.chat-box {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.msg {
+    margin: 5px 0;
+    padding: 8px;
+    background: #f5f5f5;
+    border-radius: 10px;
+}
+
+/* поле ввода снизу */
+.input-bar {
+    display: flex;
+    padding: 10px;
+    border-top: 1px solid #ccc;
+    background: white;
+}
+
+.input-bar input {
+    flex: 1;
+    padding: 10px;
+    border-radius: 20px;
+    border: 1px solid #ccc;
+    outline: none;
+}
+
+.input-bar button {
+    margin-left: 10px;
+    padding: 10px 15px;
+    border-radius: 50%;
+    border: none;
+    background: #4a76a8;
+    color: white;
+}
 </style>
 </head>
 
