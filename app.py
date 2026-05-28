@@ -441,9 +441,6 @@ body.dark {
 </head>
 
 <body>
-</head>
-
-<body>
 
 <div id="menu" style="
 display:none;
