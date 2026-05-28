@@ -514,11 +514,6 @@ function addFriend(u){
 </script>
 
 <div class="chat">
-<div style="padding:10px; background:#4a76a8; color:white;">
-    <button onclick="toggleMenu()" style="font-size:20px;">
-        ☰
-    </button>
-</div>
 
 {% if not session.get("email") %}
 
