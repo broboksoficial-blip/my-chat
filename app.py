@@ -295,7 +295,13 @@ function addFriend(u){
 
 {% if session.get("username") %}
 
-<h3>👤 {{session.get("username")}}</h3>
+<h3>
+👤 {{session.get("username")}}
+</h3>
+
+<p>
+ID: {{my_id}}
+</p>
 
 <a href="/change-username">
 ✏️ Изменить username
