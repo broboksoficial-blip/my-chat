@@ -1,7 +1,7 @@
 from flask import Flask, request, render_template_string, session, redirect, jsonify
 import sqlite3
 import random
-
+import os
 app = Flask(__name__)
 app.secret_key = "chat_secret"
 
