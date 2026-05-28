@@ -315,7 +315,33 @@ body {
     margin: 0;
     height: 100vh;
 }
+.chat-header {
+    padding: 15px;
+    background: #4a76a8;
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
+}
 
+.chat-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.chat-actions .btn {
+    color: white;
+    text-decoration: none;
+    background: rgba(255,255,255,0.2);
+    padding: 5px 10px;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.chat-actions .btn:hover {
+    background: rgba(255,255,255,0.35);
+}
 /* левая панель */
 .left {
     width: 250px;
@@ -487,7 +513,14 @@ function loginGoogle(){
 
 {% else %}
 
-<h2>Chat with {{peer}}</h2>
+<div class="chat-header">
+    💬 {{peer}}
+
+    <div class="chat-actions">
+        <a href="/" class="btn">⬅ Назад</a>
+        <a href="/logout" class="btn">🚪 Выйти</a>
+    </div>
+</div>
 
 <div class="chat-box">
     {% for m in messages %}
