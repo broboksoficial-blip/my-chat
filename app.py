@@ -177,6 +177,7 @@ def chat(user):
 
     me = row[0]
 
+    # сообщения
     c.execute("""
     SELECT sender, message FROM messages
     WHERE (sender=? AND receiver=?)
@@ -185,9 +186,20 @@ def chat(user):
     """, (me, user, user, me))
 
     messages = c.fetchall()
+
+    # 🔥 ДОБАВЛЯЕМ ДРУЗЕЙ
+    c.execute("SELECT friend FROM friends WHERE user=?", (me,))
+    friends = [r[0] for r in c.fetchall()]
+
     conn.close()
 
-    return render_template_string(HTML, friends=[], peer=user, messages=messages, my_id=session.get("user_id"))
+    return render_template_string(
+        HTML,
+        friends=friends,
+        peer=user,
+        messages=messages,
+        my_id=session.get("user_id")
+    )
 
 
 # ---------------- SEND ----------------
@@ -341,6 +353,8 @@ function addFriend(u){
 <p>ID: {{my_id}}</p>
 
 <a href="/settings">⚙️ Настройки</a>
+
+<a href="/logout">🚪 Выйти</a>
 
 <a href="/logout">Logout</a>
 
