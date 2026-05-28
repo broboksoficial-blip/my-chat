@@ -15,7 +15,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS users (
         email TEXT UNIQUE,
         name TEXT,
-        username TEXT UNIQUE
+        username TEXT UNIQUE,
+user_id TEXT UNIQUE
     )
     """)
 
