@@ -441,15 +441,20 @@ body.dark {
 </head>
 
 <body>
-<div id="menu" style="display:none; z-index:99999; position:fixed; left:0; top:0; width:220px; height:100%; background:#eee; padding:10px; z-index:9999;">
-    <img src="{{session.get('photo')}}" width="60" style="border-radius:50%;">
-    <p>{{session.get("username")}}</p>
-    <p>ID: {{my_id}}</p>
-
-    <hr>
-
-    <a href="/settings">Настройки</a><br>
-    <a href="/logout">Выйти</a>
+<div style="
+padding:10px;
+background:var(--header);
+color:white;
+">
+    <button onclick="toggleMenu()" style="
+    font-size:22px;
+    background:none;
+    border:none;
+    color:white;
+    cursor:pointer;
+    ">
+        ☰
+    </button>
 </div>
 
 <script>
@@ -480,46 +485,6 @@ function addFriend(u){
     }).then(() => location.reload());
 }
 </script>
-
-<div class="left">
-
-{% if session.get("username") %}
-<div style="text-align:center;">
-    <img src="{{session.get('photo')}}"
-         width="80"
-         height="80"
-         style="border-radius:50%; object-fit:cover;">
-
-    <h3>{{session.get("username")}}</h3>
-</div>
-<p>ID: {{my_id}}</p>
-
-<a href="/settings">⚙️ Настройки</a><br>
-
-<a href="/logout">🚪 Выйти</a>
-<br><br>
-
-<button onclick="toggleTheme()">
-🌙/☀️ Theme
-</button>
-<hr>
-
-<h3>🔍 Поиск</h3>
-<input id="q" placeholder="username">
-<button onclick="searchUser()">Find</button>
-
-<div id="results"></div>
-
-<hr>
-
-<h3>💬 Friends</h3>
-{% for f in friends %}
-<p><a href="/chat/{{f}}">{{f}}</a></p>
-{% endfor %}
-
-{% endif %}
-
-</div>
 
 <div class="chat">
 <div style="padding:10px; background:#4a76a8; color:white;">
