@@ -441,7 +441,7 @@ body.dark {
 </head>
 
 <body>
-<div id="menu" style="display:none; position:fixed; left:0; top:0; width:220px; height:100%; background:#eee; padding:10px; z-index:9999;">
+<div id="menu" style="display:none; z-index:99999; position:fixed; left:0; top:0; width:220px; height:100%; background:#eee; padding:10px; z-index:9999;">
     <img src="{{session.get('photo')}}" width="60" style="border-radius:50%;">
     <p>{{session.get("username")}}</p>
     <p>ID: {{my_id}}</p>
@@ -522,6 +522,11 @@ function addFriend(u){
 </div>
 
 <div class="chat">
+<div style="padding:10px; background:#4a76a8; color:white;">
+    <button onclick="toggleMenu()" style="font-size:20px;">
+        ☰
+    </button>
+</div>
 
 {% if not session.get("email") %}
 
