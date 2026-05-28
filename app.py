@@ -165,11 +165,12 @@ def search():
     c = conn.cursor()
 
     c.execute("""
-    SELECT username FROM users
-    WHERE username LIKE ?
+    SELECT username, user_id FROM users
+    WHERE user_id LIKE ?
     """, (f"%{q}%",))
 
-    res = [r[0] for r in c.fetchall() if r[0]]
+    res = c.fetchall()
+
     conn.close()
 
     return jsonify({"results": res})
