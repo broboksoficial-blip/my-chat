@@ -181,13 +181,45 @@ HTML = """
 <head>
 <meta charset="UTF-8">
 <title>Chat</title>
+
 <style>
-body { font-family: Arial; display:flex; }
-.left { width:250px; background:#eee; padding:10px; }
-.chat { flex:1; padding:10px; }
-.msg { margin:5px 0; }
+body {
+    font-family: Arial;
+    display:flex;
+    margin:0;
+}
+
+.left {
+    width:250px;
+    background:#eeeeee;
+    padding:10px;
+    height:100vh;
+    overflow:auto;
+}
+
+.chat {
+    flex:1;
+    padding:20px;
+}
+
+.msg {
+    margin:5px 0;
+    padding:8px;
+    background:#f5f5f5;
+    border-radius:10px;
+}
+
+input {
+    padding:8px;
+}
+
+button {
+    padding:8px;
+    cursor:pointer;
+}
 </style>
 </head>
+
 <body>
 
 <script>
@@ -197,11 +229,13 @@ function searchUser(){
     fetch("/search?q=" + q)
     .then(r => r.json())
     .then(d => {
+
         let html = "";
 
         d.results.forEach(u => {
+
             html += `
-                <div>
+                <div style="margin:5px 0;">
                     ${u}
                     <button onclick="addFriend('${u}')">+</button>
                 </div>
@@ -213,50 +247,107 @@ function searchUser(){
 }
 
 function addFriend(u){
+
     fetch("/add-friend", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({username: u})
-    }).then(() => alert("Добавлено в друзья"));
+        method:"POST",
+        headers:{
+            "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+            username:u
+        })
+
+    }).then(() => {
+        alert("Добавлено");
+        location.reload();
+    });
 }
 </script>
 
 <div class="left">
 
-<h3>Поиск</h3>
+{% if session.get("username") %}
+
+<h3>👤 {{session.get("username")}}</h3>
+
+<a href="/change-username">
+✏️ Изменить username
+</a>
+
+<hr>
+
+<h3>🔍 Поиск</h3>
+
 <input id="q" placeholder="username">
 <button onclick="searchUser()">Найти</button>
+
 <div id="results"></div>
 
-<h3>Друзья</h3>
+<hr>
+
+<h3>💬 Друзья</h3>
+
 {% for f in friends %}
-  <p><a href="/chat/{{f}}">{{f}}</a></p>
+<p>
+<a href="/chat/{{f}}">
+{{f}}
+</a>
+</p>
 {% endfor %}
+
+{% endif %}
 
 </div>
 
 <div class="chat">
 
 {% if not session.get("email") %}
-  <a href="#" onclick="loginGoogle()">Войти через Google</a>
+
+<h2>Вход</h2>
+
+<p>
+Сначала войди через Google
+</p>
 
 {% elif not session.get("username") %}
-  <a href="/set-username">Создать username</a>
+
+<h2>Создай username</h2>
+
+<a href="/set-username">
+Создать username
+</a>
 
 {% elif not peer %}
-  <h3>Привет {{session.get("username")}}</h3>
+
+<h2>
+Привет {{session.get("username")}} 👋
+</h2>
+
+<p>
+Выбери чат слева
+</p>
 
 {% else %}
-  <h3>Чат с {{peer}}</h3>
 
-  {% for m in messages %}
-    <div class="msg"><b>{{m[0]}}:</b> {{m[1]}}</div>
-  {% endfor %}
+<h2>Чат с {{peer}}</h2>
 
-  <form method="POST" action="/send/{{peer}}">
-    <input name="msg">
-    <button>Отправить</button>
-  </form>
+{% for m in messages %}
+
+<div class="msg">
+<b>{{m[0]}}</b>: {{m[1]}}
+</div>
+
+{% endfor %}
+
+<form method="POST" action="/send/{{peer}}">
+
+<input name="msg" placeholder="Сообщение">
+
+<button>
+Отправить
+</button>
+
+</form>
 
 {% endif %}
 
