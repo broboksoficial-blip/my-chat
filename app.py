@@ -581,12 +581,17 @@ function loginGoogle(){
 {% else %}
 
 <div class="chat-header">
-<button onclick="toggleMenu()">☰</button>
-    💬 {{peer}}
+    <button onclick="toggleMenu()" style="
+    font-size:22px;
+    background:none;
+    border:none;
+    color:white;
+    cursor:pointer;
+    ">
+        ☰
+    </button>
 
-    <div class="chat-actions">
-        <a href="/" class="btn">⬅ Назад</a>
-    </div>
+    <span>💬 {{peer}}</span>
 </div>
 
 <div class="chat-box">
