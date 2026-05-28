@@ -319,7 +319,7 @@ body {
 }
 .chat-header {
     padding: 15px;
-    background: #4a76a8;
+    background: var(--header);
     color: white;
     display: flex;
     justify-content: space-between;
@@ -385,7 +385,7 @@ body {
 .msg {
     margin: 5px 0;
     padding: 8px;
-    background: #f5f5f5;
+    background: var(--msg);
     border-radius: 10px;
 }
 
