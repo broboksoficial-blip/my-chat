@@ -396,6 +396,9 @@ ID: {{my_id}}
 def home():
     email = session.get("email")
 
+    if not email:
+        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST")
+
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
@@ -408,6 +411,10 @@ def home():
 
     username = row[0] if row else None
     my_id = row[1] if row else "unknown"
+
+    if not username:
+        conn.close()
+        return render_template_string(HTML, friends=[], peer=None, my_id=my_id)
 
     c.execute("SELECT friend FROM friends WHERE user=?", (username,))
     friends = [r[0] for r in c.fetchall()]
