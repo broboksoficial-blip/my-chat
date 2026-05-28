@@ -474,7 +474,14 @@ function addFriend(u){
 <div class="left">
 
 {% if session.get("username") %}
-<h3>👤 {{session.get("username")}}</h3>
+<div style="text-align:center;">
+    <img src="{{session.get('photo')}}"
+         width="80"
+         height="80"
+         style="border-radius:50%; object-fit:cover;">
+
+    <h3>{{session.get("username")}}</h3>
+</div>
 <p>ID: {{my_id}}</p>
 
 <a href="/settings">⚙️ Настройки</a><br>
