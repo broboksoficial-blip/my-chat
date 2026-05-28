@@ -394,15 +394,17 @@ body.dark {
     display: flex;
     padding: 10px;
     border-top: 1px solid #ccc;
-    background: white;
+    background: var(--left);
 }
 
 .input-bar input {
     flex: 1;
     padding: 10px;
     border-radius: 20px;
-    border: 1px solid #ccc;
+    border: 1px solid #555;
     outline: none;
+    background: var(--msg);
+    color: var(--text);
 }
 
 .input-bar button {
