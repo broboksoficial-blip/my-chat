@@ -234,7 +234,27 @@ def send(user):
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect("/")
+
+    return """
+    <script>
+    firebase.auth().signOut().then(() => {
+        window.location.href = "/";
+    });
+    </script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+
+    <script>
+    const firebaseConfig = {
+      apiKey: "ТВОЙ_API_KEY",
+      authDomain: "my-chat2-ae3ca.firebaseapp.com",
+      projectId: "my-chat2-ae3ca",
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    </script>
+    """
 
 
 # ---------------- HOME ----------------
