@@ -162,7 +162,8 @@ def search():
     conn.close()
 
     return jsonify({"results": res})
-
+if not row:
+    return "user not found"
 # ---------------- ADD FRIEND ----------------
 @app.route("/add-friend", methods=["POST"])
 def add_friend():
@@ -413,7 +414,8 @@ def home():
         peer=None,
         my_id=my_id
     )
-
+if not row:
+    return "user not found"
 
 # ---------------- CHAT ----------------
 @app.route("/chat/<user>")
