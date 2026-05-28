@@ -454,8 +454,13 @@ function addFriend(u){
 <p>ID: {{my_id}}</p>
 
 <a href="/settings">⚙️ Настройки</a><br>
-<a href="/logout">🚪 Выйти</a>
 
+<a href="/logout">🚪 Выйти</a>
+<br><br>
+
+<button onclick="toggleTheme()">
+🌙/☀️ Theme
+</button>
 <hr>
 
 <h3>🔍 Поиск</h3>
