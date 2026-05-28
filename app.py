@@ -90,7 +90,48 @@ def set_username():
         <button>Save</button>
     </form>
     """
+# ---------------- CHANGE USERNAME ----------------
+@app.route("/change-username", methods=["GET", "POST"])
+def change_username():
+    if not session.get("email"):
+        return redirect("/")
 
+    if request.method == "POST":
+        new_username = request.form["username"]
+        email = session.get("email")
+
+        conn = sqlite3.connect(DB)
+        c = conn.cursor()
+
+        c.execute("""
+        SELECT username FROM users
+        WHERE username=?
+        """, (new_username,))
+
+        if c.fetchone():
+            conn.close()
+            return "❌ Username уже занят"
+
+        c.execute("""
+        UPDATE users
+        SET username=?
+        WHERE email=?
+        """, (new_username, email))
+
+        conn.commit()
+        conn.close()
+
+        session["username"] = new_username
+
+        return redirect("/")
+
+    return """
+    <form method="POST">
+        <h3>Изменить username</h3>
+        <input name="username" placeholder="новый username">
+        <button>Сохранить</button>
+    </form>
+    """
 
 # ---------------- SEARCH ----------------
 @app.route("/search")
