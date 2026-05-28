@@ -341,6 +341,8 @@ function addFriend(u){
 <h3>👤 {{session.get("username")}}</h3>
 <p>ID: {{my_id}}</p>
 
+<a href="/settings">⚙️ Настройки</a>
+
 <a href="/logout">Logout</a>
 
 <hr>
