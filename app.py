@@ -360,8 +360,6 @@ def home():
 @app.route("/chat/<user>")
 def chat(user):
     me = session.get("username")
-if not me:
-    return redirect("/")
     if not me:
         return redirect("/")
 
