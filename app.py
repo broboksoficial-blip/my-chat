@@ -51,6 +51,7 @@ def google_login():
     data = request.get_json()
     email = data["email"]
     name = data["name"]
+    photo = data["photo"]
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -80,6 +81,7 @@ def google_login():
 
     session["email"] = email
     session["name"] = name
+    session["photo"] = photo
     session["user_id"] = user_id
     session["username"] = username  # 👈 ВСЕГДА сохраняем (даже None)
 
