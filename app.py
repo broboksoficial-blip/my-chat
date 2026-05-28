@@ -6,7 +6,7 @@ app = Flask(__name__)
 app.secret_key = "chat_secret"
 
 DB = "chat.db"
-
+print("DB EXISTS:", os.path.exists("chat.db"))
 # ---------------- DB ----------------
 def init_db():
     conn = sqlite3.connect(DB)
