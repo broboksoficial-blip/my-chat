@@ -441,6 +441,51 @@ body.dark {
 </head>
 
 <body>
+</head>
+
+<body>
+
+<div id="menu" style="
+display:none;
+position:fixed;
+left:0;
+top:0;
+width:220px;
+height:100%;
+background:var(--left);
+padding:15px;
+z-index:99999;
+">
+
+{% if session.get("username") %}
+
+<div style="text-align:center;">
+    <img src="{{session.get('photo')}}"
+         width="70"
+         style="border-radius:50%;">
+
+    <h3>{{session.get("username")}}</h3>
+
+    <p>ID: {{my_id}}</p>
+</div>
+
+<hr>
+
+<button onclick="toggleTheme()">
+🌙/☀️ Theme
+</button>
+
+<br><br>
+
+<a href="/settings">⚙️ Настройки</a>
+
+<br><br>
+
+<a href="/logout">🚪 Выйти</a>
+
+{% endif %}
+
+</div>
 <div style="
 padding:10px;
 background:var(--header);
