@@ -252,7 +252,6 @@ def logout():
       apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
       authDomain: "my-chat2-ae3ca.firebaseapp.com",
       projectId: "my-chat2-ae3ca",
-      appId: "1:407628010061:web:72f3cb30760c52101cc204"
     };
 
     firebase.initializeApp(firebaseConfig);
@@ -538,22 +537,6 @@ function loginGoogle(){
   firebase.auth().signInWithPopup(provider)
   .then(result => {
       const user = result.user;
-
-      return fetch("/google-login", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            name: user.displayName,
-            email: user.email,
-            photo: user.photoURL
-        })
-      });
-  })
-  .then(() => {
-      window.location.href = "/";
-  })
-  .catch(err => console.error(err));
-}
 
       return fetch("/google-login", {
         method: "POST",
