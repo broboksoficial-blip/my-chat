@@ -48,22 +48,32 @@ init_db()
 def google_login():
     data = request.get_json()
 
-    session["email"] = data["email"]
-    session["name"] = data["name"]
+    email = data["email"]
+    name = data["name"]
+
+    session["email"] = email
+    session["name"] = name
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    c.execute("SELECT user_id FROM users WHERE email=?", (data["email"],))
+    # ищем пользователя
+    c.execute("SELECT user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
+    # если нет — создаём
     if not row:
-        new_id = str(random.randint(100000, 999999))
+        while True:
+            new_id = str(random.randint(100000, 999999))
+
+            c.execute("SELECT user_id FROM users WHERE user_id=?", (new_id,))
+            if not c.fetchone():
+                break
 
         c.execute("""
         INSERT INTO users (email, name, username, user_id)
         VALUES (?, ?, ?, ?)
-        """, (data["email"], data["name"], None, new_id))
+        """, (email, name, None, new_id))
 
     conn.commit()
     conn.close()
@@ -300,11 +310,7 @@ def home():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    c.execute("""
-    SELECT username, user_id FROM users
-    WHERE email=?
-    """, (email,))
-
+    c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
     if not row:
@@ -312,6 +318,10 @@ def home():
         return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
 
     username, my_id = row
+
+    # если username ещё не создан
+    if not username:
+        username = "no-username"
 
     c.execute("SELECT friend FROM friends WHERE user=?", (username,))
     friends = [r[0] for r in c.fetchall()]
