@@ -398,7 +398,21 @@ def home():
 
     conn.close()
 
-    return render_template_string(HTML, friends=friends, peer=None)
+    c.execute("""
+SELECT user_id FROM users
+WHERE username=?
+""", (me,))
+
+row = c.fetchone()
+
+my_id = row[0] if row else "unknown"
+
+return render_template_string(
+    HTML,
+    friends=friends,
+    peer=None,
+    my_id=my_id
+)
 
 
 # ---------------- CHAT ----------------
