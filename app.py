@@ -402,23 +402,23 @@ def home():
     c.execute("SELECT friend FROM friends WHERE user=?", (me,))
     friends = [r[0] for r in c.fetchall()]
 
+    c.execute("""
+    SELECT user_id FROM users
+    WHERE username=?
+    """, (me,))
+
+    row = c.fetchone()
+
+    my_id = row[0] if row else "unknown"
+
     conn.close()
 
-    c.execute("""
-SELECT user_id FROM users
-WHERE username=?
-""", (me,))
-
-row = c.fetchone()
-
-my_id = row[0] if row else "unknown"
-
-return render_template_string(
-    HTML,
-    friends=friends,
-    peer=None,
-    my_id=my_id
-)
+    return render_template_string(
+        HTML,
+        friends=friends,
+        peer=None,
+        my_id=my_id
+    )
 
 
 # ---------------- CHAT ----------------
