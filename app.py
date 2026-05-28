@@ -395,7 +395,11 @@ ID: {{my_id}}
 @app.route("/")
 def home():
     email = session.get("email")
+@app.route("/")
+def home():
+    email = session.get("email")
 
+    print("EMAIL:", email)  # 👈 ВОТ ЭТА СТРОКА
     if not email:
         return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST")
 
