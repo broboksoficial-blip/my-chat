@@ -163,12 +163,21 @@ def add_friend():
 # ---------------- CHAT ----------------
 @app.route("/chat/<user>")
 def chat(user):
-    me = session.get("username")
-    if not me:
+    email = session.get("email")
+
+    if not email:
         return redirect("/")
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
+
+    c.execute("SELECT username FROM users WHERE email=?", (email,))
+    row = c.fetchone()
+
+    if not row or not row[0]:
+        return redirect("/")
+
+    me = row[0]
 
     c.execute("""
     SELECT sender, message FROM messages
@@ -186,11 +195,19 @@ def chat(user):
 # ---------------- SEND ----------------
 @app.route("/send/<user>", methods=["POST"])
 def send(user):
-    me = session.get("username")
-    msg = request.form["msg"]
+    email = session.get("email")
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
+
+    c.execute("SELECT username FROM users WHERE email=?", (email,))
+    row = c.fetchone()
+
+    if not row or not row[0]:
+        return redirect("/")
+
+    me = row[0]
+    msg = request.form["msg"]
 
     c.execute("""
     INSERT INTO messages (sender, receiver, message)
@@ -216,7 +233,7 @@ def home():
     email = session.get("email")
 
     if not email:
-        return render_template_string(HTML, friends=[], peer=None, my_id="—")
+        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST")
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -224,21 +241,21 @@ def home():
     c.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
     row = c.fetchone()
 
-    conn.close()
-
     if not row:
-        return render_template_string(HTML, friends=[], peer=None, my_id="—")
+        conn.close()
+        return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
 
     username, user_id = row
-
-    if username:
-        session["username"] = username
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    c.execute("SELECT friend FROM friends WHERE user=?", (username,))
-    friends = [r[0] for r in c.fetchall()]
+    # если username нет → просто показываем кнопку
+    if username is None:
+        friends = []
+    else:
+        c.execute("SELECT friend FROM friends WHERE user=?", (username,))
+        friends = [r[0] for r in c.fetchall()]
 
     conn.close()
 
