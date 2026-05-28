@@ -52,16 +52,13 @@ def google_login():
     email = data["email"]
     name = data["name"]
 
-    session["email"] = email
-    session["name"] = name
-
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
     c.execute("SELECT user_id, username FROM users WHERE email=?", (email,))
-    row = c.fetchone()
+    user = c.fetchone()
 
-    if row is None:
+    if user is None:
         while True:
             new_id = str(random.randint(100000, 999999))
             c.execute("SELECT 1 FROM users WHERE user_id=?", (new_id,))
@@ -73,15 +70,18 @@ def google_login():
         VALUES (?, ?, ?, ?)
         """, (email, name, None, new_id))
 
-        conn.commit()
-        username = None
         user_id = new_id
+        username = None
+        conn.commit()
     else:
-        user_id, username = row
+        user_id, username = user
 
     conn.close()
 
+    session["email"] = email
+    session["name"] = name
     session["user_id"] = user_id
+
     if username:
         session["username"] = username
 
