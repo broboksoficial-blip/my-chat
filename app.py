@@ -282,6 +282,7 @@ def home():
 
     session["user_id"] = user_id
     session["username"] = username
+session.setdefault("theme", "light")
 
     friends = []
 
