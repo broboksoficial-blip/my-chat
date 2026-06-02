@@ -647,14 +647,27 @@ function toggleMenu(){
     let menu = document.getElementById("menu");
     let overlay = document.getElementById("overlay");
 
-    if(menu.style.display === "none" || menu.style.display === ""){
-        menu.style.display = "block";
+    let isOpen = menu.classList.contains("open");
+
+    if (!isOpen) {
+        menu.classList.add("open");
         overlay.style.display = "block";
     } else {
-        menu.style.display = "none";
+        menu.classList.remove("open");
         overlay.style.display = "none";
     }
 }
+
+// закрытие по клику на фон
+document.addEventListener("click", function(e){
+    let menu = document.getElementById("menu");
+    let overlay = document.getElementById("overlay");
+
+    if (e.target === overlay) {
+        menu.classList.remove("open");
+        overlay.style.display = "none";
+    }
+});
 </script>
 """
 
