@@ -331,23 +331,6 @@ HTML = """
 <title>Chat</title>
 
 <style>
-body {
-    font-family: Arial;
-    display: flex;
-    margin: 0;
-    height: 100vh;
-    background: var(--bg);
-    color: var(--text);
-}
-.chat-header {
-    padding: 15px;
-    background: var(--header);
-    color: white;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: bold;
-}
 :root {
     --bg: white;
     --text: black;
@@ -363,32 +346,28 @@ body.dark {
     --msg: #2a2a2a;
     --header: #202020;
 }
-.chat-actions {
+
+body {
+    margin: 0;
+    font-family: Arial;
     display: flex;
-    gap: 10px;
+    height: 100vh;
+    background: var(--bg);
+    color: var(--text);
 }
 
-.chat-actions .btn {
+/* HEADER */
+.chat-header {
+    padding: 15px;
+    background: var(--header);
     color: white;
-    text-decoration: none;
-    background: rgba(255,255,255,0.2);
-    padding: 5px 10px;
-    border-radius: 10px;
-    font-size: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: bold;
 }
 
-.chat-actions .btn:hover {
-    background: rgba(255,255,255,0.35);
-}
-/* левая панель */
-.left {
-    width: 250px;
-    background: var(--left);
-    padding: 10px;
-    overflow: auto;
-}
-
-/* чат */
+/* CHAT */
 .chat {
     flex: 1;
     display: flex;
@@ -396,14 +375,12 @@ body.dark {
     height: 100vh;
 }
 
-/* блок сообщений */
 .chat-box {
     flex: 1;
     overflow-y: auto;
     padding: 20px;
 }
 
-/* сообщение */
 .msg {
     margin: 5px 0;
     padding: 8px;
@@ -411,7 +388,7 @@ body.dark {
     border-radius: 10px;
 }
 
-/* нижняя панель */
+/* INPUT */
 .input-bar {
     display: flex;
     padding: 10px;
@@ -437,56 +414,62 @@ body.dark {
     background: #4a76a8;
     color: white;
 }
+
+/* MENU */
+#menu {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 220px;
+    height: 100%;
+    background: var(--left);
+    padding: 15px;
+    z-index: 99999;
+
+    transform: translateX(-100%);
+    transition: 0.3s;
+}
+
+#menu.open {
+    transform: translateX(0);
+}
+
+/* OVERLAY */
+#overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.3);
+    z-index: 99998;
+}
 </style>
 </head>
 
 <body>
 
-<div id="menu" style="
-display:none;
-position:fixed;
-left:0;
-top:0;
-width:220px;
-height:100%;
-background:var(--left);
-padding:15px;
-z-index:99999;
-">
+<!-- OVERLAY -->
+<div id="overlay" onclick="toggleMenu()"></div>
 
-<div id="overlay" onclick="toggleMenu()" style="
-display:none;
-position:fixed;
-top:0;
-left:0;
-width:100%;
-height:100%;
-background:rgba(0,0,0,0.3);
-z-index:99998;
-"></div>
+<!-- MENU -->
+<div id="menu">
 
 {% if session.get("username") %}
 
 <div style="text-align:center;">
-    <img src="{{session.get('photo')}}"
-         width="70"
-         style="border-radius:50%;">
-
+    <img src="{{session.get('photo')}}" width="70" style="border-radius:50%;">
     <h3>{{session.get("username")}}</h3>
-
     <p>ID: {{my_id}}</p>
 </div>
 
 <hr>
 
-<button onclick="toggleTheme()">
-🌙/☀️ Theme
-</button>
-
+<button onclick="toggleTheme()">🌙/☀️ Theme</button>
 <br><br>
 
 <a href="/settings">⚙️ Настройки</a>
-
 <br><br>
 
 <a href="/logout">🚪 Выйти</a>
@@ -494,35 +477,6 @@ z-index:99998;
 {% endif %}
 
 </div>
-
-<script>
-function searchUser(){
-    let q = document.getElementById("q").value;
-
-    fetch("/search?q=" + q)
-    .then(r => r.json())
-    .then(d => {
-        let html = "";
-        d.results.forEach(u => {
-            html += `
-                <div>
-                    ${u[0]} (#${u[1]})
-                    <button onclick="addFriend('${u[0]}')">+</button>
-                </div>
-            `;
-        });
-        document.getElementById("results").innerHTML = html;
-    });
-}
-
-function addFriend(u){
-    fetch("/add-friend", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({username:u})
-    }).then(() => location.reload());
-}
-</script>
 
 <div class="chat">
 
@@ -561,47 +515,31 @@ function loginGoogle(){
         })
       });
   })
-  .then(() => {
-      window.location.href = "/";
-  })
-  .catch(err => {
-      console.error("LOGIN ERROR:", err);
-      alert("Ошибка входа — смотри F12 Console");
-  });
+  .then(() => location.reload())
+  .catch(err => alert("Ошибка входа"));
 }
 </script>
 
 {% elif not session.get("username") %}
 
-<h2>Create username</h2>
-<a href="/set-username">Set username</a>
+<h2>Создай username</h2>
+<a href="/set-username">Создать</a>
 
 {% elif not peer %}
+
 <div class="chat-header">
-    <button onclick="toggleMenu()" style="
-    font-size:22px;
-    background:none;
-    border:none;
-    color:white;
-    cursor:pointer;
-    ">
+    <button onclick="toggleMenu()" style="font-size:22px;background:none;border:none;color:white;">
         ☰
     </button>
 </div>
 
 <h2>Welcome {{session.get("username")}}</h2>
-<p>Select chat</p>
+<p>Выбери чат</p>
 
 {% else %}
 
 <div class="chat-header">
-    <button onclick="toggleMenu()" style="
-    font-size:22px;
-    background:none;
-    border:none;
-    color:white;
-    cursor:pointer;
-    ">
+    <button onclick="toggleMenu()" style="font-size:22px;background:none;border:none;color:white;">
         ☰
     </button>
 
@@ -625,23 +563,6 @@ function loginGoogle(){
 
 </div>
 
-</body>
-<script>
-function toggleTheme(){
-    document.body.classList.toggle("dark");
-
-    if(document.body.classList.contains("dark")){
-        localStorage.setItem("theme", "dark");
-    } else {
-        localStorage.setItem("theme", "light");
-    }
-}
-
-if(localStorage.getItem("theme") === "dark"){
-    document.body.classList.add("dark");
-}
-</script>
-</html>
 <script>
 function toggleMenu(){
     let menu = document.getElementById("menu");
@@ -649,7 +570,7 @@ function toggleMenu(){
 
     let isOpen = menu.classList.contains("open");
 
-    if (!isOpen) {
+    if(!isOpen){
         menu.classList.add("open");
         overlay.style.display = "block";
     } else {
@@ -658,19 +579,21 @@ function toggleMenu(){
     }
 }
 
-// закрытие по клику на фон
-document.addEventListener("click", function(e){
-    let menu = document.getElementById("menu");
-    let overlay = document.getElementById("overlay");
+function toggleTheme(){
+    document.body.classList.toggle("dark");
+    localStorage.setItem("theme",
+        document.body.classList.contains("dark") ? "dark" : "light"
+    );
+}
 
-    if (e.target === overlay) {
-        menu.classList.remove("open");
-        overlay.style.display = "none";
-    }
-});
+if(localStorage.getItem("theme") === "dark"){
+    document.body.classList.add("dark");
+}
 </script>
-"""
 
+</body>
+</html>
+"""
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
