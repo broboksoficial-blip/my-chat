@@ -1,13 +1,11 @@
 from flask import Flask, request, render_template_string, session, redirect, jsonify
 import sqlite3
 import random
-import os
 
 app = Flask(__name__)
 app.secret_key = "chat_secret"
 
 DB = "chat.db"
-
 
 # ---------------- DB ----------------
 def init_db():
@@ -71,8 +69,7 @@ def google_login():
         VALUES (?, ?, ?, ?)
         """, (email, name, None, new_id))
 
-        user_id = new_id
-        username = None
+        user_id, username = new_id, None
         conn.commit()
     else:
         user_id, username = user
@@ -83,9 +80,17 @@ def google_login():
     session["name"] = name
     session["photo"] = photo
     session["user_id"] = user_id
-    session["username"] = username  # 👈 ВСЕГДА сохраняем (даже None)
+    session["username"] = username
 
     return jsonify({"ok": True})
+
+
+# ---------------- THEME ----------------
+@app.route("/set-theme/<mode>")
+def set_theme(mode):
+    if mode in ["dark", "light"]:
+        session["theme"] = mode
+    return redirect("/")
 
 
 # ---------------- SET USERNAME ----------------
@@ -112,7 +117,7 @@ def set_username():
     return """
     <h2>Создать username</h2>
     <form method="POST">
-        <input name="username" placeholder="username">
+        <input name="username">
         <button>OK</button>
     </form>
     """
@@ -128,8 +133,7 @@ def search():
 
     c.execute("""
     SELECT username, user_id FROM users
-    WHERE username LIKE ?
-    OR user_id LIKE ?
+    WHERE username LIKE ? OR user_id LIKE ?
     """, (f"%{q}%", f"%{q}%"))
 
     res = c.fetchall()
@@ -146,7 +150,7 @@ def add_friend():
     me = session.get("username")
     other = data["username"]
 
-    if not me:
+    if not me or not other:
         return jsonify({"ok": False})
 
     conn = sqlite3.connect(DB)
@@ -164,7 +168,6 @@ def add_friend():
 @app.route("/chat/<user>")
 def chat(user):
     email = session.get("email")
-
     if not email:
         return redirect("/")
 
@@ -179,7 +182,6 @@ def chat(user):
 
     me = row[0]
 
-    # сообщения
     c.execute("""
     SELECT sender, message FROM messages
     WHERE (sender=? AND receiver=?)
@@ -189,14 +191,12 @@ def chat(user):
 
     messages = c.fetchall()
 
-    # 🔥 ДОБАВЛЯЕМ ДРУЗЕЙ
     c.execute("SELECT friend FROM friends WHERE user=?", (me,))
     friends = [r[0] for r in c.fetchall()]
 
     conn.close()
 
-    return render_template_string(
-        HTML,
+    return render_template_string(HTML,
         friends=friends,
         peer=user,
         messages=messages,
@@ -236,27 +236,7 @@ def send(user):
 @app.route("/logout")
 def logout():
     session.clear()
-
-    return """
-    <script>
-    firebase.auth().signOut().then(() => {
-        window.location.href = "/";
-    });
-    </script>
-
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-
-    <script>
-    const firebaseConfig = {
-      apiKey: "AIzaSyByRxM7bQhYSK5XCuaZMRo0s42DGeaav6Y",
-      authDomain: "my-chat2-ae3ca.firebaseapp.com",
-      projectId: "my-chat2-ae3ca",
-    };
-
-    firebase.initializeApp(firebaseConfig);
-    </script>
-    """
+    return redirect("/")
 
 
 # ---------------- HOME ----------------
@@ -280,12 +260,11 @@ def home():
 
     username, user_id = row
 
+    session["username"] = username or None
     session["user_id"] = user_id
-    session["username"] = username
-session.setdefault("theme", "light")
+    session.setdefault("theme", "light")
 
     friends = []
-
     if username:
         conn = sqlite3.connect(DB)
         c = conn.cursor()
@@ -299,29 +278,29 @@ session.setdefault("theme", "light")
         peer=None,
         my_id=user_id
     )
-# ---------------- Settings ----------------
+
+
+# ---------------- SETTINGS ----------------
 @app.route("/settings")
 def settings():
     if not session.get("email"):
         return redirect("/")
 
     return render_template_string("""
-    <h2>⚙️ Настройки</h2>
+    <h2>⚙️ Settings</h2>
+    <p>Email: {{email}}</p>
+    <p>Username: {{username}}</p>
+    <p>ID: {{user_id}}</p>
 
-    <p>📧 Email: {{email}}</p>
-    <p>👤 Username: {{username}}</p>
-    <p>🆔 ID: {{user_id}}</p>
-
-    <hr>
-
-    <a href="/set-username">✏️ Изменить username</a><br><br>
-    <a href="/logout">🚪 Выйти</a><br><br>
-    <a href="/">⬅️ Назад</a>
+    <a href="/set-username">Change username</a><br>
+    <a href="/logout">Logout</a><br>
+    <a href="/">Back</a>
     """,
     email=session.get("email"),
     username=session.get("username"),
     user_id=session.get("user_id")
     )
+
 
 # ---------------- HTML ----------------
 HTML = """
