@@ -266,11 +266,6 @@ def home():
 
     if not email:
         return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST")
-        @app.route("/set-theme/<mode>")
-def set_theme(mode):
-    if mode in ["dark", "light"]:
-        session["theme"] = mode
-    return redirect("/")
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
