@@ -298,13 +298,6 @@ def home():
         peer=None,
         my_id=user_id
     )
-    
-   @app.route("/set-theme/<mode>")
-def set_theme(mode):
-    if mode in ["dark", "light"]:
-        session["theme"] = mode
-    return redirect("/")
-    
 # ---------------- Settings ----------------
 @app.route("/settings")
 def settings():
