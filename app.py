@@ -453,6 +453,16 @@ background:var(--left);
 padding:15px;
 z-index:99999;
 ">
+<div id="overlay" onclick="toggleMenu()" style="
+display:none;
+position:fixed;
+top:0;
+left:0;
+width:100%;
+height:100%;
+background:rgba(0,0,0,0.3);
+z-index:99998;
+"></div>
 
 {% if session.get("username") %}
 
