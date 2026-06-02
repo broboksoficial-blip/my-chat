@@ -644,11 +644,14 @@ if(localStorage.getItem("theme") === "dark"){
 <script>
 function toggleMenu(){
     let menu = document.getElementById("menu");
+    let overlay = document.getElementById("overlay");
 
     if(menu.style.display === "none" || menu.style.display === ""){
         menu.style.display = "block";
+        overlay.style.display = "block";
     } else {
         menu.style.display = "none";
+        overlay.style.display = "none";
     }
 }
 </script>
