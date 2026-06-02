@@ -298,6 +298,7 @@ def home():
         peer=None,
         my_id=user_id
     )
+    
    @app.route("/set-theme/<mode>")
 def set_theme(mode):
     if mode in ["dark", "light"]:
