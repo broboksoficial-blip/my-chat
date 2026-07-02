@@ -561,6 +561,42 @@ function loginGoogle(){
 <h2>Welcome {{session.get("username")}}</h2>
 <p>Выбери чат</p>
 
+<!-- Поиск -->
+<div style="padding:20px; max-width:500px;">
+
+    <input
+        id="search"
+        type="text"
+        placeholder="🔍 Найти пользователя"
+        style="
+            width:100%;
+            padding:12px;
+            border-radius:10px;
+            border:1px solid #666;
+            font-size:16px;
+        "
+        oninput="searchUser()"
+    >
+
+    <div id="results" style="margin-top:15px;"></div>
+
+</div>
+
+<!-- Друзья -->
+<h3 style="padding-left:20px;">👥 Друзья</h3>
+
+<div style="padding:0 20px;">
+
+{% for f in friends %}
+    <div style="margin:10px 0;">
+        <a href="/chat/{{f}}">
+            {{f}}
+        </a>
+    </div>
+{% endfor %}
+
+</div>
+
 {% else %}
 
 <div class="chat-header">
