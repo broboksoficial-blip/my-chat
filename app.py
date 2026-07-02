@@ -647,6 +647,54 @@ function toggleTheme(){
     );
 }
 
+async function searchUser(){
+
+    let q = document.getElementById("search").value;
+
+    if(q.length == 0){
+        document.getElementById("results").innerHTML="";
+        return;
+    }
+
+    let r = await fetch("/search?q="+encodeURIComponent(q));
+    let data = await r.json();
+
+    let html="";
+
+    data.results.forEach(u=>{
+
+        html += `
+        <div style="padding:10px;border-bottom:1px solid #444;">
+            <b>${u[0]}</b><br>
+            ID: ${u[1]}
+            <br><br>
+
+            <button onclick="addFriend('${u[0]}')">
+                Добавить
+            </button>
+        </div>
+        `;
+
+    });
+
+    document.getElementById("results").innerHTML = html;
+}
+
+async function addFriend(username){
+
+    await fetch("/add-friend",{
+        method:"POST",
+        headers:{
+            "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+            username:username
+        })
+    });
+
+    location.reload();
+}
+
 if(localStorage.getItem("theme") === "dark"){
     document.body.classList.add("dark");
 }
