@@ -483,6 +483,23 @@ body {
     transform: translateX(0);
 }
 
+#menu button{
+    width:100%;
+    padding:10px;
+    margin-bottom:10px;
+    border:none;
+    border-radius:8px;
+    background:var(--msg);
+    color:var(--text);
+    cursor:pointer;
+    font-size:16px;
+    text-align:left;
+}
+
+#menu button:hover{
+    opacity:0.9;
+}
+
 /* OVERLAY */
 #overlay {
     display: none;
