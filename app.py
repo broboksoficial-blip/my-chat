@@ -202,7 +202,37 @@ def chat(user):
         messages=messages,
         my_id=session.get("user_id")
     )
+    
+# ---------------- LIVE MESSAGES (AJAX) ----------------
+@app.route("/messages/<user>")
+def messages(user):
+    email = session.get("email")
 
+    if not email:
+        return jsonify([])
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT username FROM users WHERE email=?", (email,))
+    row = c.fetchone()
+
+    if not row or not row[0]:
+        return jsonify([])
+
+    me = row[0]
+
+    c.execute("""
+        SELECT sender, message FROM messages
+        WHERE (sender=? AND receiver=?)
+        OR (sender=? AND receiver=?)
+        ORDER BY id
+    """, (me, user, user, me))
+
+    msgs = c.fetchall()
+    conn.close()
+
+    return jsonify(msgs)
 
 # ---------------- SEND ----------------
 @app.route("/send/<user>", methods=["POST"])
