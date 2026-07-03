@@ -679,6 +679,32 @@ function loginGoogle(){
 </div>
 
 <div class="chat-box">
+<script>
+async function updateChat(){
+
+    let res = await fetch("/messages/{{peer}}");
+    let data = await res.json();
+
+    let box = document.querySelector(".chat-box");
+
+    box.innerHTML = "";
+
+    data.forEach(m => {
+        box.innerHTML += `
+            <div class="msg">
+                <b>${m[0]}</b>: ${m[1]}
+            </div>
+        `;
+    });
+}
+
+// обновление каждые 2 секунды
+setInterval(updateChat, 2000);
+
+// первый запуск
+updateChat();
+</script>
+
     {% for m in messages %}
         <div class="msg">
             <b>{{m[0]}}</b>: {{m[1]}}
