@@ -452,8 +452,6 @@ body {
 <a href="/settings">⚙️ Настройки</a>
 <br><br>
 
-<a href="/logout">🚪 Выйти</a>
-
 {% endif %}
 
 </div>
