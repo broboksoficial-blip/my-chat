@@ -229,7 +229,7 @@ def send(user):
     conn.commit()
     conn.close()
 
-    return redirect("/chat/" + user)
+    return jsonify({"ok": True})
 
 
 # ---------------- LOGOUT ----------------
