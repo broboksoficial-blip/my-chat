@@ -287,15 +287,84 @@ def settings():
         return redirect("/")
 
     return render_template_string("""
-    <h2>⚙️ Settings</h2>
-    <p>Email: {{email}}</p>
-    <p>Username: {{username}}</p>
-    <p>ID: {{user_id}}</p>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
 
-    <a href="/set-username">Change username</a><br>
-    <a href="/logout">Logout</a><br>
-    <a href="/">Back</a>
-    """,
+<style>
+:root{
+    --bg:white;
+    --text:black;
+    --card:#f5f5f5;
+}
+
+body.dark{
+    --bg:#0f0f0f;
+    --text:white;
+    --card:#1f1f1f;
+}
+
+body{
+    margin:0;
+    font-family:Arial;
+    background:var(--bg);
+    color:var(--text);
+    transition:.3s;
+}
+
+.box{
+    max-width:500px;
+    margin:40px auto;
+    background:var(--card);
+    padding:20px;
+    border-radius:15px;
+}
+
+a{
+    color:#4a76a8;
+    text-decoration:none;
+    display:block;
+    margin:12px 0;
+}
+
+hr{
+    border:none;
+    border-top:1px solid #555;
+}
+</style>
+
+</head>
+
+<body>
+
+<div class="box">
+
+<h2>⚙️ Настройки</h2>
+
+<p>📧 Email: {{email}}</p>
+<p>👤 Username: {{username}}</p>
+<p>🆔 ID: {{user_id}}</p>
+
+<hr>
+
+<a href="/set-username">✏️ Изменить username</a>
+
+<a href="/logout">🚪 Выйти</a>
+
+<a href="/">⬅️ Назад</a>
+
+</div>
+
+<script>
+if(localStorage.getItem("theme") === "dark"){
+    document.body.classList.add("dark");
+}
+</script>
+
+</body>
+</html>
+""",
     email=session.get("email"),
     username=session.get("username"),
     user_id=session.get("user_id")
