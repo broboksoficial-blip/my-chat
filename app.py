@@ -207,6 +207,35 @@ def chat(user):
 # ---------------- SEND ----------------
 @app.route("/send/<user>", methods=["POST"])
 def send(user):
+    @app.route("/messages/<user>")
+def messages(user):
+    email = session.get("email")
+
+    if not email:
+        return jsonify([])
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT username FROM users WHERE email=?", (email,))
+    row = c.fetchone()
+
+    if not row:
+        return jsonify([])
+
+    me = row[0]
+
+    c.execute("""
+        SELECT sender, message FROM messages
+        WHERE (sender=? AND receiver=?)
+        OR (sender=? AND receiver=?)
+        ORDER BY id
+    """, (me, user, user, me))
+
+    msgs = c.fetchall()
+    conn.close()
+
+    return jsonify(msgs)
     email = session.get("email")
 
     conn = sqlite3.connect(DB)
