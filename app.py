@@ -435,51 +435,6 @@ body {
 
 <!-- MENU -->
 <div id="menu">
-<h3>👥 Friends</h3>
-
-{% for f in friends %}
-    <div style="padding:5px;">
-        <a href="/chat/{{f}}">💬 {{f}}</a>
-    </div>
-{% endfor %}
-
-<hr>
-
-<h3>🔎 Search</h3>
-<input id="search" placeholder="username or id">
-<button onclick="searchUser()">Search</button>
-
-<div id="results"></div>
-
-<script>
-function searchUser(){
-    let q = document.getElementById("search").value;
-
-    fetch("/search?q=" + q)
-    .then(r => r.json())
-    .then(data => {
-        let out = "";
-
-        data.results.forEach(u => {
-            out += `
-            <div style="margin:5px;">
-                👤 ${u[0]} (${u[1]})
-                <button onclick="addFriend('${u[0]}')">Add</button>
-            </div>`;
-        });
-
-        document.getElementById("results").innerHTML = out;
-    });
-}
-
-function addFriend(username){
-    fetch("/add-friend", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({username})
-    }).then(()=>alert("Added"));
-}
-</script>
 
 {% if session.get("username") %}
 
