@@ -518,7 +518,9 @@ body {
 <button onclick="toggleTheme()">🌙/☀️ Theme</button>
 <br><br>
 
-<a href="/settings">⚙️ Настройки</a>
+<button onclick="window.location.href='/settings'">
+    ⚙️ Настройки
+</button>
 <br><br>
 
 {% endif %}
