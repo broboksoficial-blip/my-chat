@@ -678,7 +678,7 @@ function loginGoogle(){
     <span>💬 {{peer}}</span>
 </div>
 
-<div class="chat-box">
+<div class="chat-box" id="chatBox">
 <script>
 async function updateChat(){
 
