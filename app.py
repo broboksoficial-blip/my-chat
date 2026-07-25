@@ -716,13 +716,12 @@ HTML = BASE_STYLE + """
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relay</title>
-
-<style>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Relay</title><style>
 body{
     display:flex;
     height:100vh;
+    height:100dvh;
     overflow:hidden;
 }
 
@@ -732,6 +731,7 @@ body{
     display:flex;
     flex-direction:column;
     height:100vh;
+    height:100dvh;
     min-width:0;
 }
 
@@ -759,6 +759,23 @@ body{
     flex-shrink:0;
 }
 .icon-btn:hover{ background:var(--primary-dim); color:var(--primary); }
+
+.back-btn{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    height:38px;
+    padding:0 14px 0 10px;
+    border-radius:10px;
+    border:none;
+    background:var(--surface-2);
+    color:var(--text);
+    font-size:14px;
+    font-weight:600;
+    text-decoration:none;
+    flex-shrink:0;
+}
+.back-btn:hover{ background:var(--primary-dim); color:var(--primary); }
 
 .peer-title{
     display:flex;
@@ -969,6 +986,7 @@ body{
     display:flex;
     gap:10px;
     padding:14px 16px;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom));
     border-top:1px solid var(--border);
     background:var(--surface);
     flex-shrink:0;
@@ -1120,6 +1138,7 @@ body{
         <p class="mono">ID {{my_id}}</p>
     </div>
 
+    <button class="menu-item" onclick="window.location.href='/'">💬&nbsp; Чаты</button>
     <button class="menu-item" onclick="toggleTheme()">🌗&nbsp; Тема</button>
     <button class="menu-item" onclick="window.location.href='/settings'">⚙️&nbsp; Настройки</button>
     {% endif %}
@@ -1215,13 +1234,15 @@ function loginGoogle(){
 {% else %}
 
 <div class="chat-header">
-    <button class="icon-btn" onclick="toggleMenu()">☰</button>
+    <a class="back-btn" href="/">← Чаты</a>
     <div class="peer-title">
         <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (peer|length * 47) % 360 }},60%,45%)">
             {{peer[0]|upper}}
         </div>
         {{peer}}
     </div>
+    <div style="flex:1;"></div>
+    <button class="icon-btn" onclick="toggleMenu()">☰</button>
 </div>
 
 <div class="chat-box" id="chatBox">
@@ -1355,13 +1376,13 @@ async function searchUser(){
     data.results.forEach(u => {
         const hue = (u[0].length * 47) % 360;
         html += `
-        <div class="result-row">
+        <div class="result-row" onclick="window.location.href='/chat/${encodeURIComponent(u[0])}'" style="cursor:pointer;">
             <div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${u[0][0].toUpperCase()}</div>
             <div class="result-meta">
                 <div class="u">${u[0]}</div>
                 <div class="id mono">ID ${u[1]}</div>
             </div>
-            <button class="add-btn" onclick="addFriend('${u[0]}')">Добавить</button>
+            <button class="add-btn" onclick="event.stopPropagation(); addFriend('${u[0]}')">Добавить</button>
         </div>
         `;
     });
