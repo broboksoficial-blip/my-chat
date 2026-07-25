@@ -85,14 +85,6 @@ def google_login():
     return jsonify({"ok": True})
 
 
-# ---------------- THEME ----------------
-@app.route("/set-theme/<mode>")
-def set_theme(mode):
-    if mode in ["dark", "light"]:
-        session["theme"] = mode
-    return redirect("/")
-
-
 # ---------------- SET USERNAME ----------------
 @app.route("/set-username", methods=["GET", "POST"])
 def set_username():
@@ -296,7 +288,6 @@ def home():
 
     session["username"] = username or None
     session["user_id"] = user_id
-    session.setdefault("theme", "light")
 
     friends = []
     if username:
@@ -481,6 +472,11 @@ AUTH_SHELL = BASE_STYLE + """
         {{body|safe}}
     </div>
 </div>
+<script>
+if(localStorage.getItem("theme") === "dark"){
+    document.body.classList.add("dark");
+}
+</script>
 </body>
 </html>
 """
@@ -594,6 +590,11 @@ SETTINGS_HTML = BASE_STYLE + """
         </div>
     </div>
 </div>
+<script>
+if(localStorage.getItem("theme") === "dark"){
+    document.body.classList.add("dark");
+}
+</script>
 </body>
 </html>
 """
