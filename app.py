@@ -37,10 +37,40 @@ def init_db():
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS read_state (
+        user TEXT,
+        peer TEXT,
+        last_id INTEGER,
+        PRIMARY KEY (user, peer)
+    )
+    """)
+
     conn.commit()
     conn.close()
 
 init_db()
+
+
+def mark_read(user, peer):
+    """Remember that `user` has seen all messages in the user<->peer thread so far."""
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT MAX(id) FROM messages
+        WHERE (sender=? AND receiver=?) OR (sender=? AND receiver=?)
+    """, (user, peer, peer, user))
+
+    last_id = c.fetchone()[0] or 0
+
+    c.execute("""
+        INSERT INTO read_state (user, peer, last_id) VALUES (?, ?, ?)
+        ON CONFLICT(user, peer) DO UPDATE SET last_id=excluded.last_id
+    """, (user, peer, last_id))
+
+    conn.commit()
+    conn.close()
 
 
 # ---------------- GOOGLE LOGIN ----------------
@@ -159,7 +189,52 @@ def add_friend():
     return jsonify({"ok": True})
 
 
-# ---------------- CHAT ----------------
+# ---------------- UNREAD COUNTS (for notifications) ----------------
+@app.route("/unread-counts")
+def unread_counts():
+    email = session.get("email")
+    if not email:
+        return jsonify({})
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT username FROM users WHERE email=?", (email,))
+    row = c.fetchone()
+
+    if not row or not row[0]:
+        conn.close()
+        return jsonify({})
+
+    me = row[0]
+
+    c.execute("SELECT friend FROM friends WHERE user=?", (me,))
+    friends = [r[0] for r in c.fetchall()]
+
+    result = {}
+
+    for friend in friends:
+        c.execute("SELECT last_id FROM read_state WHERE user=? AND peer=?", (me, friend))
+        row = c.fetchone()
+        last_id = row[0] if row else 0
+
+        c.execute("""
+            SELECT message FROM messages
+            WHERE sender=? AND receiver=? AND id>?
+            ORDER BY id
+        """, (friend, me, last_id))
+
+        unread_msgs = c.fetchall()
+
+        if unread_msgs:
+            result[friend] = {
+                "count": len(unread_msgs),
+                "last": unread_msgs[-1][0]
+            }
+
+    conn.close()
+
+    return jsonify(result)
 @app.route("/chat/<user>")
 def chat(user):
     email = session.get("email")
@@ -190,6 +265,8 @@ def chat(user):
     friends = [r[0] for r in c.fetchall()]
 
     conn.close()
+
+    mark_read(me, user)
 
     return render_template_string(HTML,
         friends=friends,
@@ -227,6 +304,8 @@ def messages(user):
 
     msgs = c.fetchall()
     conn.close()
+
+    mark_read(me, user)
 
     return jsonify(msgs)
 
@@ -390,8 +469,36 @@ body{
 
 .mono{ font-family:'JetBrains Mono', monospace; }
 
-button{ font-family:inherit; cursor:pointer; }
-input{ font-family:inherit; }
+button{ font-family:inherit; cursor:pointer; transition:transform .12s ease, background .2s ease, opacity .2s ease; }
+button:active{ transform:scale(0.96); }
+input{ font-family:inherit; transition:border-color .2s ease; }
+
+a{ transition:transform .15s ease, background .2s ease; }
+
+@keyframes fadeInUp{
+    from{ opacity:0; transform:translateY(10px); }
+    to{ opacity:1; transform:translateY(0); }
+}
+
+@keyframes popIn{
+    from{ opacity:0; transform:scale(.7); }
+    to{ opacity:1; transform:scale(1); }
+}
+
+@keyframes slideDownFade{
+    from{ opacity:0; transform:translate(-50%,-12px); }
+    to{ opacity:1; transform:translate(-50%,0); }
+}
+
+@keyframes pulseOnce{
+    0%{ transform:scale(1); }
+    35%{ transform:scale(1.18); }
+    100%{ transform:scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce){
+    *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; }
+}
 </style>
 """
 
@@ -420,6 +527,7 @@ AUTH_SHELL = BASE_STYLE + """
     box-shadow:var(--shadow);
     padding:36px 32px;
     text-align:center;
+    animation:fadeInUp .45s ease both;
 }
 .auth-card .wordmark{
     justify-content:center;
@@ -462,6 +570,7 @@ AUTH_SHELL = BASE_STYLE + """
     font-weight:600;
     font-size:15px;
 }
+.auth-form button:hover{ opacity:0.92; }
 </style>
 </head>
 <body>
@@ -505,6 +614,7 @@ SETTINGS_HTML = BASE_STYLE + """
     border-radius:var(--radius-lg);
     box-shadow:var(--shadow);
     padding:28px;
+    animation:fadeInUp .45s ease both;
 }
 .settings-card h2{
     font-family:'Space Grotesk', sans-serif;
@@ -560,6 +670,7 @@ SETTINGS_HTML = BASE_STYLE + """
     align-items:center;
     gap:10px;
 }
+.settings-links a:hover{ transform:translateX(3px); }
 .settings-links a.danger{ color:#EF4444; }
 </style>
 </head>
@@ -647,6 +758,7 @@ body{
     justify-content:center;
     flex-shrink:0;
 }
+.icon-btn:hover{ background:var(--primary-dim); color:var(--primary); }
 
 .peer-title{
     display:flex;
@@ -700,6 +812,12 @@ body{
     margin-bottom:8px;
     text-decoration:none;
     color:var(--text);
+    animation:fadeInUp .3s ease both;
+}
+
+#results .result-row:hover, .friend-row:hover{
+    transform:translateY(-2px);
+    box-shadow:var(--shadow);
 }
 
 .avatar-badge{
@@ -714,11 +832,28 @@ body{
     font-size:14px;
     font-family:'Space Grotesk', sans-serif;
     flex-shrink:0;
+    animation:popIn .3s ease both;
 }
 
 .result-meta{ flex:1; min-width:0; }
 .result-meta .u{ font-weight:600; font-size:14.5px; }
 .result-meta .id{ font-size:12px; color:var(--text-dim); }
+
+.unread-badge{
+    background:var(--primary);
+    color:white;
+    font-size:11.5px;
+    font-weight:700;
+    min-width:20px;
+    height:20px;
+    padding:0 6px;
+    border-radius:999px;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+}
+.unread-badge.show{ display:flex; animation:pulseOnce .35s ease; }
 
 .add-btn{
     border:none;
@@ -730,11 +865,52 @@ body{
     font-weight:600;
     flex-shrink:0;
 }
+.add-btn:hover{ opacity:0.85; }
 
 .empty-state{
     color:var(--text-dim);
     font-size:13.5px;
     padding:14px 2px;
+}
+
+/* ---------- TOAST NOTIFICATIONS ---------- */
+#toast-stack{
+    position:fixed;
+    top:16px;
+    left:50%;
+    z-index:999999;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    align-items:center;
+    pointer-events:none;
+}
+
+.toast{
+    pointer-events:auto;
+    left:50%;
+    transform:translateX(-50%);
+    background:var(--surface);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow);
+    border-radius:999px;
+    padding:9px 16px 9px 9px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    max-width:88vw;
+    cursor:pointer;
+    animation:slideDownFade .3s ease both;
+}
+
+.toast .avatar-badge{ width:30px; height:30px; font-size:12px; animation:none; }
+.toast .toast-text{ font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:220px; }
+.toast .toast-text b{ font-weight:600; }
+
+.toast.leaving{ animation:fadeOutUp .25s ease both; }
+
+@keyframes fadeOutUp{
+    to{ opacity:0; transform:translate(-50%,-10px); }
 }
 
 /* ---------- CHAT BUBBLES ---------- */
@@ -784,6 +960,10 @@ body{
     margin-bottom:2px;
 }
 
+.msg-row.msg-in{
+    animation:fadeInUp .25s ease both;
+}
+
 /* ---------- INPUT ---------- */
 .input-bar{
     display:flex;
@@ -817,6 +997,7 @@ body{
     font-size:16px;
     flex-shrink:0;
 }
+.input-bar button:hover{ opacity:0.9; }
 
 /* ---------- SIDE MENU ---------- */
 #menu{
@@ -879,6 +1060,7 @@ body{
     align-items:center;
     gap:10px;
 }
+#menu button.menu-item:hover{ background:var(--primary-dim); color:var(--primary); }
 
 #overlay{
     display:none;
@@ -898,6 +1080,7 @@ body{
     gap:16px;
     text-align:center;
     padding:20px;
+    animation:fadeInUp .4s ease both;
 }
 
 .login-wrap .wordmark{ font-size:26px; }
@@ -916,11 +1099,13 @@ body{
     font-size:14.5px;
     box-shadow:var(--shadow);
 }
+.google-btn:hover{ transform:translateY(-1px); }
 </style>
 </head>
 
 <body>
 
+<div id="toast-stack"></div>
 <div id="overlay" onclick="toggleMenu()"></div>
 
 <div id="menu">
@@ -1011,13 +1196,14 @@ function loginGoogle(){
 
     {% if friends %}
         {% for f in friends %}
-            <a class="friend-row" href="/chat/{{f}}">
+            <a class="friend-row" href="/chat/{{f}}" data-friend="{{f}}">
                 <div class="avatar-badge" style="background:hsl({{ (f|length * 47) % 360 }},60%,45%)">
                     {{f[0]|upper}}
                 </div>
                 <div class="result-meta">
                     <div class="u">{{f}}</div>
                 </div>
+                <span class="unread-badge" data-badge="{{f}}"></span>
             </a>
         {% endfor %}
     {% else %}
@@ -1063,24 +1249,37 @@ function escapeHtml(str){
     }[s]));
 }
 
+let knownCount = {{ messages|length }};
+
 async function updateChat(){
     let res = await fetch("/messages/" + encodeURIComponent(PEER));
     let data = await res.json();
 
     let box = document.getElementById("chatBox");
+
+    if(data.length === knownCount) return;
+
     let atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
 
-    box.innerHTML = "";
-    data.forEach(m => {
+    if(data.length < knownCount){
+        // conversation shrank unexpectedly - do a full, unanimated redraw
+        box.innerHTML = "";
+        knownCount = 0;
+    }
+
+    data.slice(knownCount).forEach(m => {
         const mine = m[0] === ME;
-        box.innerHTML += `
-            <div class="msg-row ${mine ? 'me' : 'them'}">
-                <div class="msg">
-                    ${mine ? '' : `<span class="sender">${escapeHtml(m[0])}</span>`}${escapeHtml(m[1])}
-                </div>
+        const row = document.createElement("div");
+        row.className = `msg-row msg-in ${mine ? 'me' : 'them'}`;
+        row.innerHTML = `
+            <div class="msg">
+                ${mine ? '' : `<span class="sender">${escapeHtml(m[0])}</span>`}${escapeHtml(m[1])}
             </div>
         `;
+        box.appendChild(row);
     });
+
+    knownCount = data.length;
 
     if(atBottom){ box.scrollTop = box.scrollHeight; }
 }
@@ -1108,6 +1307,14 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
 </div>
 
 <script>
+const MY_USERNAME = {{ (me or None)|tojson }};
+
+function escapeHtml(str){
+    return str.replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[s]));
+}
+
 function toggleMenu(){
     let menu = document.getElementById("menu");
     let overlay = document.getElementById("overlay");
@@ -1172,6 +1379,65 @@ async function addFriend(username){
 
 if(localStorage.getItem("theme") === "dark"){
     document.body.classList.add("dark");
+}
+
+function showToast(friend, text){
+    const stack = document.getElementById("toast-stack");
+    if(!stack) return;
+
+    const hue = (friend.length * 47) % 360;
+    const t = document.createElement("div");
+    t.className = "toast";
+    t.innerHTML = `
+        <div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${escapeHtml(friend[0].toUpperCase())}</div>
+        <div class="toast-text"><b>${escapeHtml(friend)}</b>: ${escapeHtml(text)}</div>
+    `;
+    t.onclick = () => { window.location.href = "/chat/" + encodeURIComponent(friend); };
+    stack.appendChild(t);
+
+    setTimeout(() => {
+        t.classList.add("leaving");
+        setTimeout(() => t.remove(), 250);
+    }, 3800);
+}
+
+function applyUnreadBadges(data){
+    document.querySelectorAll("[data-badge]").forEach(el => {
+        const info = data[el.getAttribute("data-badge")];
+        if(info && info.count > 0){
+            el.textContent = info.count > 9 ? "9+" : info.count;
+            el.classList.add("show");
+        } else {
+            el.textContent = "";
+            el.classList.remove("show");
+        }
+    });
+}
+
+let knownUnread = null;
+
+async function pollUnread(){
+    try{
+        let res = await fetch("/unread-counts");
+        let data = await res.json();
+
+        if(knownUnread !== null){
+            for(const friend in data){
+                const prevCount = (knownUnread[friend] && knownUnread[friend].count) || 0;
+                if(data[friend].count > prevCount){
+                    showToast(friend, data[friend].last);
+                }
+            }
+        }
+
+        knownUnread = data;
+        applyUnreadBadges(data);
+    } catch(e){ /* ignore transient network errors */ }
+}
+
+if(MY_USERNAME){
+    pollUnread();
+    setInterval(pollUnread, 3000);
 }
 </script>
 
