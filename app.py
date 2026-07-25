@@ -114,13 +114,16 @@ def set_username():
         session["username"] = username
         return redirect("/")
 
-    return """
-    <h2>Создать username</h2>
-    <form method="POST">
-        <input name="username">
-        <button>OK</button>
-    </form>
-    """
+    return render_template_string(AUTH_SHELL,
+        title="Придумай имя",
+        body="""
+        <p class="auth-sub">Оно будет видно друзьям в списке чатов и в поиске.</p>
+        <form method="POST" class="auth-form">
+            <input name="username" placeholder="username" autocomplete="off" required>
+            <button type="submit">Продолжить</button>
+        </form>
+        """
+    )
 
 
 # ---------------- SEARCH ----------------
@@ -200,9 +203,10 @@ def chat(user):
         friends=friends,
         peer=user,
         messages=messages,
-        my_id=session.get("user_id")
+        my_id=session.get("user_id"),
+        me=me
     )
-    
+
 # ---------------- LIVE MESSAGES (AJAX) ----------------
 @app.route("/messages/<user>")
 def messages(user):
@@ -275,7 +279,7 @@ def home():
     email = session.get("email")
 
     if not email:
-        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST")
+        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST", me=None)
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -286,7 +290,7 @@ def home():
     conn.close()
 
     if not row:
-        return render_template_string(HTML, friends=[], peer=None, my_id="NO USER")
+        return render_template_string(HTML, friends=[], peer=None, my_id="NO USER", me=None)
 
     username, user_id = row
 
@@ -306,7 +310,8 @@ def home():
         HTML,
         friends=friends,
         peer=None,
-        my_id=user_id
+        my_id=user_id,
+        me=username
     )
 
 
@@ -316,271 +321,633 @@ def settings():
     if not session.get("email"):
         return redirect("/")
 
-    return render_template_string("""
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-
-<style>
-:root{
-    --bg:white;
-    --text:black;
-    --card:#f5f5f5;
-}
-
-body.dark{
-    --bg:#0f0f0f;
-    --text:white;
-    --card:#1f1f1f;
-}
-
-body{
-    margin:0;
-    font-family:Arial;
-    background:var(--bg);
-    color:var(--text);
-    transition:.3s;
-}
-
-.box{
-    max-width:500px;
-    margin:40px auto;
-    background:var(--card);
-    padding:20px;
-    border-radius:15px;
-}
-
-a{
-    color:#4a76a8;
-    text-decoration:none;
-    display:block;
-    margin:12px 0;
-}
-
-hr{
-    border:none;
-    border-top:1px solid #555;
-}
-</style>
-
-</head>
-
-<body>
-
-<div class="box">
-
-<h2>⚙️ Настройки</h2>
-
-<p>📧 Email: {{email}}</p>
-<p>👤 Username: {{username}}</p>
-<p>🆔 ID: {{user_id}}</p>
-
-<hr>
-
-<a href="/set-username">✏️ Изменить username</a>
-
-<a href="/logout">🚪 Выйти</a>
-
-<a href="/">⬅️ Назад</a>
-
-</div>
-
-<script>
-if(localStorage.getItem("theme") === "dark"){
-    document.body.classList.add("dark");
-}
-</script>
-
-</body>
-</html>
-""",
-    email=session.get("email"),
-    username=session.get("username"),
-    user_id=session.get("user_id")
+    return render_template_string(SETTINGS_HTML,
+        email=session.get("email"),
+        username=session.get("username"),
+        user_id=session.get("user_id"),
+        photo=session.get("photo")
     )
 
 
-# ---------------- HTML ----------------
-HTML = """
+# ---------------- SHARED STYLE ----------------
+BASE_STYLE = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap');
+
+:root{
+    --bg:#F4F5F8;
+    --surface:#FFFFFF;
+    --surface-2:#ECEEF3;
+    --text:#191C22;
+    --text-dim:#6B7280;
+    --border:#E2E4EA;
+    --primary:#4F46E5;
+    --primary-dim:#EEF0FF;
+    --accent:#0EA5A5;
+    --bubble-me:#4F46E5;
+    --bubble-me-text:#FFFFFF;
+    --bubble-them:#FFFFFF;
+    --radius-lg:20px;
+    --radius-md:14px;
+    --shadow:0 1px 2px rgba(20,20,43,0.04), 0 8px 24px -12px rgba(20,20,43,0.10);
+}
+
+body.dark{
+    --bg:#101218;
+    --surface:#171A21;
+    --surface-2:#1E212A;
+    --text:#EDEEF3;
+    --text-dim:#8C90A0;
+    --border:#272B36;
+    --primary:#818CF8;
+    --primary-dim:#232242;
+    --accent:#2DD4BF;
+    --bubble-me:#4F46E5;
+    --bubble-me-text:#FFFFFF;
+    --bubble-them:#1E212A;
+    --shadow:0 1px 2px rgba(0,0,0,0.2), 0 8px 24px -12px rgba(0,0,0,0.5);
+}
+
+*{ box-sizing:border-box; }
+
+body{
+    margin:0;
+    font-family:'Inter', Arial, sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    transition:background .25s ease, color .25s ease;
+    -webkit-font-smoothing:antialiased;
+}
+
+.wordmark{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    letter-spacing:-0.02em;
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+
+.wordmark .dot{
+    width:9px;
+    height:9px;
+    border-radius:3px;
+    background:var(--primary);
+    display:inline-block;
+    transform:rotate(45deg);
+}
+
+.mono{ font-family:'JetBrains Mono', monospace; }
+
+button{ font-family:inherit; cursor:pointer; }
+input{ font-family:inherit; }
+</style>
+"""
+
+# ---------------- AUTH SHELL (login / username creation) ----------------
+AUTH_SHELL = BASE_STYLE + """
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Chat</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay</title>
+<style>
+.auth-wrap{
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+}
+.auth-card{
+    width:100%;
+    max-width:380px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow);
+    padding:36px 32px;
+    text-align:center;
+}
+.auth-card .wordmark{
+    justify-content:center;
+    font-size:22px;
+    margin-bottom:6px;
+}
+.auth-card h2{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:19px;
+    margin:18px 0 4px;
+}
+.auth-sub{
+    color:var(--text-dim);
+    font-size:14px;
+    margin:0 0 20px;
+}
+.auth-form{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+.auth-form input{
+    padding:13px 14px;
+    border-radius:var(--radius-md);
+    border:1px solid var(--border);
+    background:var(--surface-2);
+    color:var(--text);
+    font-size:15px;
+    outline:none;
+}
+.auth-form input:focus{
+    border-color:var(--primary);
+}
+.auth-form button{
+    padding:13px 14px;
+    border-radius:var(--radius-md);
+    border:none;
+    background:var(--primary);
+    color:white;
+    font-weight:600;
+    font-size:15px;
+}
+</style>
+</head>
+<body>
+<div class="auth-wrap">
+    <div class="auth-card">
+        <div class="wordmark"><span class="dot"></span>Relay</div>
+        <h2>{{title}}</h2>
+        {{body|safe}}
+    </div>
+</div>
+</body>
+</html>
+"""
+
+# ---------------- SETTINGS ----------------
+SETTINGS_HTML = BASE_STYLE + """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Настройки — Relay</title>
+<style>
+.settings-wrap{
+    min-height:100vh;
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    padding:40px 20px;
+}
+.settings-card{
+    width:100%;
+    max-width:440px;
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow);
+    padding:28px;
+}
+.settings-card h2{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:20px;
+    margin:0 0 20px;
+}
+.profile-row{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding-bottom:20px;
+    margin-bottom:16px;
+    border-bottom:1px solid var(--border);
+}
+.avatar{
+    width:56px;
+    height:56px;
+    border-radius:50%;
+    object-fit:cover;
+    background:var(--primary-dim);
+}
+.profile-row .name{
+    font-weight:600;
+    font-size:16px;
+}
+.profile-row .id{
+    color:var(--text-dim);
+    font-size:13px;
+}
+.field{
+    display:flex;
+    justify-content:space-between;
+    padding:10px 0;
+    font-size:14px;
+    border-bottom:1px solid var(--border);
+}
+.field span:first-child{ color:var(--text-dim); }
+.settings-links{
+    margin-top:20px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+.settings-links a{
+    text-decoration:none;
+    color:var(--text);
+    background:var(--surface-2);
+    padding:13px 14px;
+    border-radius:var(--radius-md);
+    font-size:14px;
+    font-weight:500;
+    display:flex;
+    align-items:center;
+    gap:10px;
+}
+.settings-links a.danger{ color:#EF4444; }
+</style>
+</head>
+<body>
+<div class="settings-wrap">
+    <div class="settings-card">
+        <h2>Настройки</h2>
+
+        <div class="profile-row">
+            {% if photo %}
+                <img class="avatar" src="{{photo}}">
+            {% else %}
+                <div class="avatar"></div>
+            {% endif %}
+            <div>
+                <div class="name">{{username or "—"}}</div>
+                <div class="id mono">ID {{user_id}}</div>
+            </div>
+        </div>
+
+        <div class="field"><span>Email</span><span>{{email}}</span></div>
+        <div class="field"><span>Username</span><span>{{username or "не задан"}}</span></div>
+
+        <div class="settings-links">
+            <a href="/set-username">✏️&nbsp; Изменить username</a>
+            <a href="/">⬅&nbsp; Назад к чатам</a>
+            <a class="danger" href="/logout">⎋&nbsp; Выйти</a>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+"""
+
+# ---------------- MAIN HTML ----------------
+HTML = BASE_STYLE + """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay</title>
 
 <style>
-:root {
-    --bg: white;
-    --text: black;
-    --left: #eeeeee;
-    --msg: #f5f5f5;
-    --header: #4a76a8;
+body{
+    display:flex;
+    height:100vh;
+    overflow:hidden;
 }
 
-body.dark {
-    --bg: #0f0f0f;
-    --text: white;
-    --left: #1b1b1b;
-    --msg: #2a2a2a;
-    --header: #202020;
+/* ---------- APP SHELL ---------- */
+.chat{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    min-width:0;
 }
 
-body {
-    margin: 0;
-    font-family: Arial;
-    display: flex;
-    height: 100vh;
-    background: var(--bg);
-    color: var(--text);
+.chat-header{
+    padding:14px 18px;
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    gap:14px;
+    flex-shrink:0;
 }
 
-/* HEADER */
-.chat-header {
-    padding: 15px;
-    background: var(--header);
-    color: white;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: bold;
-}
-
-/* CHAT */
-.chat {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-}
-
-.chat-box {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-}
-
-.msg {
-    margin: 5px 0;
-    padding: 8px;
-    background: var(--msg);
-    border-radius: 10px;
-}
-
-/* INPUT */
-.input-bar {
-    display: flex;
-    padding: 10px;
-    border-top: 1px solid #ccc;
-    background: var(--left);
-}
-
-.input-bar input {
-    flex: 1;
-    padding: 10px;
-    border-radius: 20px;
-    border: 1px solid #555;
-    outline: none;
-    background: var(--msg);
-    color: var(--text);
-}
-
-.input-bar button {
-    margin-left: 10px;
-    padding: 10px 15px;
-    border-radius: 50%;
-    border: none;
-    background: #4a76a8;
-    color: white;
-}
-
-/* MENU */
-#menu {
-    position: fixed;
-    left: 0;
-    top: 0;
-    width: 220px;
-    height: 100%;
-    background: var(--left);
-    padding: 15px;
-    z-index: 99999;
-
-    transform: translateX(-100%);
-    transition: 0.3s;
-}
-
-#menu.open {
-    transform: translateX(0);
-}
-
-#menu button{
-    width:100%;
-    padding:10px;
-    margin-bottom:10px;
+.icon-btn{
+    width:38px;
+    height:38px;
+    border-radius:10px;
     border:none;
-    border-radius:8px;
-    background:var(--msg);
+    background:var(--surface-2);
     color:var(--text);
-    cursor:pointer;
+    font-size:18px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+}
+
+.peer-title{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-weight:600;
+    font-size:15px;
+}
+
+/* ---------- HOME / FRIEND LIST ---------- */
+.home-wrap{
+    padding:8px 20px 20px;
+    overflow-y:auto;
+}
+
+.search-box{
+    position:relative;
+    margin:16px 0 6px;
+}
+
+.search-box input{
+    width:100%;
+    padding:13px 16px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--text);
+    font-size:14.5px;
+    outline:none;
+}
+
+.search-box input:focus{ border-color:var(--primary); }
+
+.section-label{
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--text-dim);
+    margin:22px 2px 10px;
+}
+
+#results .result-row, .friend-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:11px 12px;
+    border-radius:var(--radius-md);
+    background:var(--surface);
+    border:1px solid var(--border);
+    margin-bottom:8px;
+    text-decoration:none;
+    color:var(--text);
+}
+
+.avatar-badge{
+    width:38px;
+    height:38px;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:white;
+    font-weight:600;
+    font-size:14px;
+    font-family:'Space Grotesk', sans-serif;
+    flex-shrink:0;
+}
+
+.result-meta{ flex:1; min-width:0; }
+.result-meta .u{ font-weight:600; font-size:14.5px; }
+.result-meta .id{ font-size:12px; color:var(--text-dim); }
+
+.add-btn{
+    border:none;
+    background:var(--primary-dim);
+    color:var(--primary);
+    padding:7px 13px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:600;
+    flex-shrink:0;
+}
+
+.empty-state{
+    color:var(--text-dim);
+    font-size:13.5px;
+    padding:14px 2px;
+}
+
+/* ---------- CHAT BUBBLES ---------- */
+.chat-box{
+    flex:1;
+    overflow-y:auto;
+    padding:20px;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+}
+
+.msg-row{
+    display:flex;
+    margin:3px 0;
+}
+.msg-row.me{ justify-content:flex-end; }
+.msg-row.them{ justify-content:flex-start; }
+
+.msg{
+    max-width:72%;
+    padding:10px 14px;
+    border-radius:16px;
+    font-size:14.5px;
+    line-height:1.4;
+    box-shadow:var(--shadow);
+    word-wrap:break-word;
+}
+
+.msg-row.me .msg{
+    background:var(--bubble-me);
+    color:var(--bubble-me-text);
+    border-bottom-right-radius:4px;
+}
+
+.msg-row.them .msg{
+    background:var(--bubble-them);
+    border:1px solid var(--border);
+    border-bottom-left-radius:4px;
+}
+
+.msg .sender{
+    display:block;
+    font-size:11px;
+    font-weight:600;
+    opacity:.65;
+    margin-bottom:2px;
+}
+
+/* ---------- INPUT ---------- */
+.input-bar{
+    display:flex;
+    gap:10px;
+    padding:14px 16px;
+    border-top:1px solid var(--border);
+    background:var(--surface);
+    flex-shrink:0;
+}
+
+.input-bar input{
+    flex:1;
+    padding:12px 16px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    outline:none;
+    background:var(--surface-2);
+    color:var(--text);
+    font-size:14.5px;
+}
+
+.input-bar input:focus{ border-color:var(--primary); }
+
+.input-bar button{
+    width:44px;
+    height:44px;
+    border-radius:50%;
+    border:none;
+    background:var(--primary);
+    color:white;
     font-size:16px;
+    flex-shrink:0;
+}
+
+/* ---------- SIDE MENU ---------- */
+#menu{
+    position:fixed;
+    left:0;
+    top:0;
+    width:250px;
+    height:100%;
+    background:var(--surface);
+    border-right:1px solid var(--border);
+    padding:22px 18px;
+    z-index:99999;
+    transform:translateX(-100%);
+    transition:transform .28s ease;
+    display:flex;
+    flex-direction:column;
+}
+
+#menu.open{ transform:translateX(0); }
+
+#menu .wordmark{ margin-bottom:22px; font-size:17px; }
+
+.menu-profile{
+    text-align:center;
+    padding:10px 0 18px;
+    border-bottom:1px solid var(--border);
+    margin-bottom:16px;
+}
+
+.menu-profile img{
+    width:64px;
+    height:64px;
+    border-radius:50%;
+    object-fit:cover;
+}
+
+.menu-profile h3{
+    margin:10px 0 2px;
+    font-size:15px;
+}
+
+.menu-profile p{
+    margin:0;
+    font-size:12px;
+    color:var(--text-dim);
+}
+
+#menu button.menu-item{
+    width:100%;
+    padding:12px 13px;
+    margin-bottom:8px;
+    border:none;
+    border-radius:var(--radius-md);
+    background:var(--surface-2);
+    color:var(--text);
     text-align:left;
+    font-size:14px;
+    font-weight:500;
+    display:flex;
+    align-items:center;
+    gap:10px;
 }
 
-#menu button:hover{
-    opacity:0.9;
+#overlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(10,10,20,0.35);
+    z-index:99998;
 }
 
-/* OVERLAY */
-#overlay {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0,0,0,0.3);
-    z-index: 99998;
+/* ---------- LOGIN (embedded) ---------- */
+.login-wrap{
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:16px;
+    text-align:center;
+    padding:20px;
+}
+
+.login-wrap .wordmark{ font-size:26px; }
+.login-wrap p{ color:var(--text-dim); max-width:280px; font-size:14px; margin:0; }
+
+.google-btn{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 22px;
+    border-radius:999px;
+    border:1px solid var(--border);
+    background:var(--surface);
+    color:var(--text);
+    font-weight:600;
+    font-size:14.5px;
+    box-shadow:var(--shadow);
 }
 </style>
 </head>
 
 <body>
 
-<!-- OVERLAY -->
 <div id="overlay" onclick="toggleMenu()"></div>
 
-<!-- MENU -->
 <div id="menu">
+    <div class="wordmark"><span class="dot"></span>Relay</div>
 
-{% if session.get("username") %}
+    {% if session.get("username") %}
+    <div class="menu-profile">
+        {% if session.get('photo') %}
+            <img src="{{session.get('photo')}}">
+        {% endif %}
+        <h3>{{session.get("username")}}</h3>
+        <p class="mono">ID {{my_id}}</p>
+    </div>
 
-<div style="text-align:center;">
-    <img src="{{session.get('photo')}}" width="70" style="border-radius:50%;">
-    <h3>{{session.get("username")}}</h3>
-    <p>ID: {{my_id}}</p>
-</div>
-
-<hr>
-
-<button onclick="toggleTheme()">🌙/☀️ Theme</button>
-<br><br>
-
-<button onclick="window.location.href='/settings'">
-    ⚙️ Настройки
-</button>
-<br><br>
-
-{% endif %}
-
+    <button class="menu-item" onclick="toggleTheme()">🌗&nbsp; Тема</button>
+    <button class="menu-item" onclick="window.location.href='/settings'">⚙️&nbsp; Настройки</button>
+    {% endif %}
 </div>
 
 <div class="chat">
 
 {% if not session.get("email") %}
 
-<h2>Вход</h2>
-
-<button onclick="loginGoogle()">Войти через Google</button>
+<div class="login-wrap">
+    <div class="wordmark"><span class="dot"></span>Relay</div>
+    <p>Простой чат для тех, кто ценит прямой разговор.</p>
+    <button class="google-btn" onclick="loginGoogle()">Войти через Google</button>
+</div>
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
@@ -618,104 +985,122 @@ function loginGoogle(){
 
 {% elif not session.get("username") %}
 
-<h2>Создай username</h2>
-<a href="/set-username">Создать</a>
+<div class="login-wrap">
+    <div class="wordmark"><span class="dot"></span>Relay</div>
+    <p>Осталось придумать username.</p>
+    <button class="google-btn" onclick="window.location.href='/set-username'">Создать username</button>
+</div>
 
 {% elif not peer %}
 
 <div class="chat-header">
-    <button onclick="toggleMenu()" style="font-size:22px;background:none;border:none;color:white;">
-        ☰
-    </button>
+    <button class="icon-btn" onclick="toggleMenu()">☰</button>
+    <div class="peer-title">Чаты</div>
 </div>
 
-<h2>Welcome {{session.get("username")}}</h2>
-<p>Выбери чат</p>
+<div class="home-wrap">
 
-<!-- Поиск -->
-<div style="padding:20px; max-width:500px;">
-
-    <input
-        id="search"
-        type="text"
-        placeholder="🔍 Найти пользователя"
-        style="
-            width:100%;
-            padding:12px;
-            border-radius:10px;
-            border:1px solid #666;
-            font-size:16px;
-        "
-        oninput="searchUser()"
-    >
-
-    <div id="results" style="margin-top:15px;"></div>
-
-</div>
-
-<!-- Друзья -->
-<h3 style="padding-left:20px;">👥 Друзья</h3>
-
-<div style="padding:0 20px;">
-
-{% for f in friends %}
-    <div style="margin:10px 0;">
-        <a href="/chat/{{f}}">
-            {{f}}
-        </a>
+    <div class="search-box">
+        <input id="search" type="text" placeholder="Найти пользователя по имени или ID" oninput="searchUser()">
     </div>
-{% endfor %}
+
+    <div id="results"></div>
+
+    <div class="section-label">Друзья</div>
+
+    {% if friends %}
+        {% for f in friends %}
+            <a class="friend-row" href="/chat/{{f}}">
+                <div class="avatar-badge" style="background:hsl({{ (f|length * 47) % 360 }},60%,45%)">
+                    {{f[0]|upper}}
+                </div>
+                <div class="result-meta">
+                    <div class="u">{{f}}</div>
+                </div>
+            </a>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">Пока никого нет — найди кого-нибудь через поиск выше.</div>
+    {% endif %}
 
 </div>
 
 {% else %}
 
 <div class="chat-header">
-    <button onclick="toggleMenu()" style="font-size:22px;background:none;border:none;color:white;">
-        ☰
-    </button>
-
-    <span>💬 {{peer}}</span>
+    <button class="icon-btn" onclick="toggleMenu()">☰</button>
+    <div class="peer-title">
+        <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (peer|length * 47) % 360 }},60%,45%)">
+            {{peer[0]|upper}}
+        </div>
+        {{peer}}
+    </div>
 </div>
 
 <div class="chat-box" id="chatBox">
-<script>
-async function updateChat(){
-
-    let res = await fetch("/messages/{{peer}}");
-    let data = await res.json();
-
-    let box = document.querySelector(".chat-box");
-
-    box.innerHTML = "";
-
-    data.forEach(m => {
-        box.innerHTML += `
-            <div class="msg">
-                <b>${m[0]}</b>: ${m[1]}
-            </div>
-        `;
-    });
-}
-
-// обновление каждые 2 секунды
-setInterval(updateChat, 2000);
-
-// первый запуск
-updateChat();
-</script>
-
     {% for m in messages %}
-        <div class="msg">
-            <b>{{m[0]}}</b>: {{m[1]}}
+        <div class="msg-row {{ 'me' if m[0] == me else 'them' }}">
+            <div class="msg">
+                {% if m[0] != me %}<span class="sender">{{m[0]}}</span>{% endif %}{{m[1]}}
+            </div>
         </div>
     {% endfor %}
 </div>
 
-<form class="input-bar" method="POST" action="/send/{{peer}}">
+<form class="input-bar" id="sendForm" method="POST" action="/send/{{peer}}">
     <input name="msg" placeholder="Написать сообщение..." autocomplete="off">
-    <button>➤</button>
+    <button type="submit">➤</button>
 </form>
+
+<script>
+const ME = {{ me|tojson }};
+const PEER = {{ peer|tojson }};
+
+function escapeHtml(str){
+    return str.replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[s]));
+}
+
+async function updateChat(){
+    let res = await fetch("/messages/" + encodeURIComponent(PEER));
+    let data = await res.json();
+
+    let box = document.getElementById("chatBox");
+    let atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+
+    box.innerHTML = "";
+    data.forEach(m => {
+        const mine = m[0] === ME;
+        box.innerHTML += `
+            <div class="msg-row ${mine ? 'me' : 'them'}">
+                <div class="msg">
+                    ${mine ? '' : `<span class="sender">${escapeHtml(m[0])}</span>`}${escapeHtml(m[1])}
+                </div>
+            </div>
+        `;
+    });
+
+    if(atBottom){ box.scrollTop = box.scrollHeight; }
+}
+
+document.getElementById("chatBox").scrollTop = document.getElementById("chatBox").scrollHeight;
+setInterval(updateChat, 2000);
+
+document.getElementById("sendForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = e.target.msg;
+    const text = input.value.trim();
+    if(!text) return;
+    input.value = "";
+    await fetch("/send/" + encodeURIComponent(PEER), {
+        method: "POST",
+        headers: {"Content-Type":"application/x-www-form-urlencoded"},
+        body: "msg=" + encodeURIComponent(text)
+    });
+    updateChat();
+});
+</script>
 
 {% endif %}
 
@@ -725,7 +1110,6 @@ updateChat();
 function toggleMenu(){
     let menu = document.getElementById("menu");
     let overlay = document.getElementById("overlay");
-
     let isOpen = menu.classList.contains("open");
 
     if(!isOpen){
@@ -739,56 +1123,49 @@ function toggleMenu(){
 
 function toggleTheme(){
     document.body.classList.toggle("dark");
-    localStorage.setItem("theme",
-        document.body.classList.contains("dark") ? "dark" : "light"
-    );
+    localStorage.setItem("theme", document.body.classList.contains("dark") ? "dark" : "light");
 }
 
 async function searchUser(){
-
     let q = document.getElementById("search").value;
+    let results = document.getElementById("results");
 
-    if(q.length == 0){
-        document.getElementById("results").innerHTML="";
+    if(q.length === 0){
+        results.innerHTML = "";
         return;
     }
 
-    let r = await fetch("/search?q="+encodeURIComponent(q));
+    let r = await fetch("/search?q=" + encodeURIComponent(q));
     let data = await r.json();
 
-    let html="";
+    if(data.results.length === 0){
+        results.innerHTML = `<div class="empty-state">Никого не нашлось по запросу «${q}»</div>`;
+        return;
+    }
 
-    data.results.forEach(u=>{
-
+    let html = "";
+    data.results.forEach(u => {
+        const hue = (u[0].length * 47) % 360;
         html += `
-        <div style="padding:10px;border-bottom:1px solid #444;">
-            <b>${u[0]}</b><br>
-            ID: ${u[1]}
-            <br><br>
-
-            <button onclick="addFriend('${u[0]}')">
-                Добавить
-            </button>
+        <div class="result-row">
+            <div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${u[0][0].toUpperCase()}</div>
+            <div class="result-meta">
+                <div class="u">${u[0]}</div>
+                <div class="id mono">ID ${u[1]}</div>
+            </div>
+            <button class="add-btn" onclick="addFriend('${u[0]}')">Добавить</button>
         </div>
         `;
-
     });
-
-    document.getElementById("results").innerHTML = html;
+    results.innerHTML = html;
 }
 
 async function addFriend(username){
-
-    await fetch("/add-friend",{
-        method:"POST",
-        headers:{
-            "Content-Type":"application/json"
-        },
-        body:JSON.stringify({
-            username:username
-        })
+    await fetch("/add-friend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: username })
     });
-
     location.reload();
 }
 
