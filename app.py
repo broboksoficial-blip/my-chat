@@ -208,13 +208,13 @@ def unread_counts():
 
     me = row[0]
 
-    c.execute("SELECT friend FROM friends WHERE user=?", (me,))
-    friends = [r[0] for r in c.fetchall()]
+    c.execute("SELECT DISTINCT sender FROM messages WHERE receiver=?", (me,))
+    senders = [r[0] for r in c.fetchall()]
 
     result = {}
 
-    for friend in friends:
-        c.execute("SELECT last_id FROM read_state WHERE user=? AND peer=?", (me, friend))
+    for sender in senders:
+        c.execute("SELECT last_id FROM read_state WHERE user=? AND peer=?", (me, sender))
         row = c.fetchone()
         last_id = row[0] if row else 0
 
@@ -222,12 +222,12 @@ def unread_counts():
             SELECT message FROM messages
             WHERE sender=? AND receiver=? AND id>?
             ORDER BY id
-        """, (friend, me, last_id))
+        """, (sender, me, last_id))
 
         unread_msgs = c.fetchall()
 
         if unread_msgs:
-            result[friend] = {
+            result[sender] = {
                 "count": len(unread_msgs),
                 "last": unread_msgs[-1][0]
             }
@@ -1422,6 +1422,30 @@ function showToast(friend, text){
     }, 3800);
 }
 
+function requestNotifyPermission(){
+    if(!("Notification" in window)) return;
+    if(Notification.permission === "default"){
+        Notification.requestPermission().catch(() => {});
+    }
+}
+
+function notifyNewMessage(friend, text){
+    const canUseSystem = ("Notification" in window) && Notification.permission === "granted" && document.hidden;
+
+    if(canUseSystem){
+        try{
+            const n = new Notification(friend, { body: text, tag: "relay-" + friend });
+            n.onclick = () => {
+                window.focus();
+                window.location.href = "/chat/" + encodeURIComponent(friend);
+            };
+            return;
+        } catch(e){ /* fall through to in-page toast */ }
+    }
+
+    showToast(friend, text);
+}
+
 function applyUnreadBadges(data){
     document.querySelectorAll("[data-badge]").forEach(el => {
         const info = data[el.getAttribute("data-badge")];
@@ -1446,7 +1470,7 @@ async function pollUnread(){
             for(const friend in data){
                 const prevCount = (knownUnread[friend] && knownUnread[friend].count) || 0;
                 if(data[friend].count > prevCount){
-                    showToast(friend, data[friend].last);
+                    notifyNewMessage(friend, data[friend].last);
                 }
             }
         }
@@ -1457,6 +1481,7 @@ async function pollUnread(){
 }
 
 if(MY_USERNAME){
+    requestNotifyPermission();
     pollUnread();
     setInterval(pollUnread, 3000);
 }
