@@ -46,10 +46,57 @@ def init_db():
     )
     """)
 
+    # migration: add photo column to users if it doesn't exist yet
+    c.execute("PRAGMA table_info(users)")
+    existing_cols = [r[1] for r in c.fetchall()]
+    if "photo" not in existing_cols:
+        c.execute("ALTER TABLE users ADD COLUMN photo TEXT")
+
     conn.commit()
     conn.close()
 
 init_db()
+
+
+def get_profile_photo(username):
+    """Fetch the currently stored profile photo (URL or data URI) for a username."""
+    if not username:
+        return None
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT photo FROM users WHERE username=?", (username,))
+    row = c.fetchone()
+    conn.close()
+
+    return row[0] if row else None
+
+
+def get_chat_partners(me):
+    """Everyone who should show up in the chat list: friends + anyone who has
+    ever messaged `me`, even if they were never added as a friend."""
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT friend FROM friends WHERE user=?", (me,))
+    friends = set(r[0] for r in c.fetchall())
+
+    c.execute("SELECT DISTINCT sender FROM messages WHERE receiver=?", (me,))
+    incoming = set(r[0] for r in c.fetchall())
+
+    partners = friends | incoming
+
+    order = {}
+    for p in partners:
+        c.execute("""
+            SELECT MAX(id) FROM messages
+            WHERE (sender=? AND receiver=?) OR (sender=? AND receiver=?)
+        """, (me, p, p, me))
+        order[p] = c.fetchone()[0] or 0
+
+    conn.close()
+
+    return sorted(partners, key=lambda p: (-order[p], p))
 
 
 def mark_read(user, peer):
@@ -95,14 +142,19 @@ def google_login():
                 break
 
         c.execute("""
-        INSERT INTO users (email, name, username, user_id)
-        VALUES (?, ?, ?, ?)
-        """, (email, name, None, new_id))
+        INSERT INTO users (email, name, username, user_id, photo)
+        VALUES (?, ?, ?, ?, ?)
+        """, (email, name, None, new_id, photo))
 
         user_id, username = new_id, None
         conn.commit()
     else:
         user_id, username = user
+        # only backfill from Google if the user has no photo of their own yet
+        c.execute("""
+            UPDATE users SET photo=? WHERE email=? AND (photo IS NULL OR photo='')
+        """, (photo, email))
+        conn.commit()
 
     conn.close()
 
@@ -146,6 +198,31 @@ def set_username():
         </form>
         """
     )
+
+
+# ---------------- SET PROFILE PHOTO ----------------
+@app.route("/set-photo", methods=["POST"])
+def set_photo():
+    email = session.get("email")
+    if not email:
+        return jsonify({"ok": False, "error": "not logged in"}), 401
+
+    data = request.get_json(silent=True) or {}
+    photo = data.get("photo", "")
+
+    if not isinstance(photo, str) or not photo.startswith("data:image/"):
+        return jsonify({"ok": False, "error": "invalid image"}), 400
+
+    if len(photo) > 1_500_000:  # safety cap, resized client-side so real uploads are far smaller
+        return jsonify({"ok": False, "error": "image too large"}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("UPDATE users SET photo=? WHERE email=?", (photo, email))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
 
 
 # ---------------- SEARCH ----------------
@@ -261,19 +338,19 @@ def chat(user):
 
     messages = c.fetchall()
 
-    c.execute("SELECT friend FROM friends WHERE user=?", (me,))
-    friends = [r[0] for r in c.fetchall()]
-
     conn.close()
 
     mark_read(me, user)
 
+    chats = get_chat_partners(me)
+
     return render_template_string(HTML,
-        friends=friends,
+        friends=chats,
         peer=user,
         messages=messages,
         my_id=session.get("user_id"),
-        me=me
+        me=me,
+        photo=get_profile_photo(me)
     )
 
 # ---------------- LIVE MESSAGES (AJAX) ----------------
@@ -350,7 +427,7 @@ def home():
     email = session.get("email")
 
     if not email:
-        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST", me=None)
+        return render_template_string(HTML, friends=[], peer=None, my_id="LOGIN FIRST", me=None, photo=None)
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -361,27 +438,22 @@ def home():
     conn.close()
 
     if not row:
-        return render_template_string(HTML, friends=[], peer=None, my_id="NO USER", me=None)
+        return render_template_string(HTML, friends=[], peer=None, my_id="NO USER", me=None, photo=None)
 
     username, user_id = row
 
     session["username"] = username or None
     session["user_id"] = user_id
 
-    friends = []
-    if username:
-        conn = sqlite3.connect(DB)
-        c = conn.cursor()
-        c.execute("SELECT friend FROM friends WHERE user=?", (username,))
-        friends = [r[0] for r in c.fetchall()]
-        conn.close()
+    chats = get_chat_partners(username) if username else []
 
     return render_template_string(
         HTML,
-        friends=friends,
+        friends=chats,
         peer=None,
         my_id=user_id,
-        me=username
+        me=username,
+        photo=get_profile_photo(username)
     )
 
 
@@ -395,7 +467,7 @@ def settings():
         email=session.get("email"),
         username=session.get("username"),
         user_id=session.get("user_id"),
-        photo=session.get("photo")
+        photo=get_profile_photo(session.get("username"))
     )
 
 
@@ -636,6 +708,42 @@ SETTINGS_HTML = BASE_STYLE + """
     object-fit:cover;
     background:var(--primary-dim);
 }
+.avatar-edit{
+    position:relative;
+    width:56px;
+    height:56px;
+    flex-shrink:0;
+    cursor:pointer;
+}
+.avatar-edit .cam{
+    position:absolute;
+    bottom:-2px;
+    right:-2px;
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    background:var(--primary);
+    color:white;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:11px;
+    border:2px solid var(--surface);
+}
+.avatar-edit input[type="file"]{ display:none; }
+.avatar-edit .uploading{
+    position:absolute;
+    inset:0;
+    border-radius:50%;
+    background:rgba(0,0,0,0.45);
+    color:white;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    font-size:10px;
+    text-align:center;
+}
+.avatar-edit.busy .uploading{ display:flex; }
 .profile-row .name{
     font-weight:600;
     font-size:16px;
@@ -680,11 +788,16 @@ SETTINGS_HTML = BASE_STYLE + """
         <h2>Настройки</h2>
 
         <div class="profile-row">
-            {% if photo %}
-                <img class="avatar" src="{{photo}}">
-            {% else %}
-                <div class="avatar"></div>
-            {% endif %}
+            <label class="avatar-edit" id="avatarEdit">
+                {% if photo %}
+                    <img class="avatar" src="{{photo}}">
+                {% else %}
+                    <div class="avatar"></div>
+                {% endif %}
+                <span class="cam">✎</span>
+                <span class="uploading">...</span>
+                <input type="file" accept="image/*" id="photoInput">
+            </label>
             <div>
                 <div class="name">{{username or "—"}}</div>
                 <div class="id mono">ID {{user_id}}</div>
@@ -705,6 +818,58 @@ SETTINGS_HTML = BASE_STYLE + """
 if(localStorage.getItem("theme") === "dark"){
     document.body.classList.add("dark");
 }
+
+function resizeImageFile(file, size){
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onerror = () => reject(new Error("decode failed"));
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext("2d");
+                const scale = Math.max(size / img.width, size / img.height);
+                const w = img.width * scale, h = img.height * scale;
+                ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                resolve(canvas.toDataURL("image/jpeg", 0.85));
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+document.getElementById("photoInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const wrap = document.getElementById("avatarEdit");
+    wrap.classList.add("busy");
+
+    try{
+        const dataUrl = await resizeImageFile(file, 240);
+
+        const res = await fetch("/set-photo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ photo: dataUrl })
+        });
+
+        const result = await res.json();
+        if(result.ok){
+            location.reload();
+        } else {
+            alert("Не получилось загрузить фото");
+            wrap.classList.remove("busy");
+        }
+    } catch(err){
+        alert("Не получилось обработать изображение");
+        wrap.classList.remove("busy");
+    }
+});
 </script>
 </body>
 </html>
@@ -1131,8 +1296,8 @@ body{
 
     {% if session.get("username") %}
     <div class="menu-profile">
-        {% if session.get('photo') %}
-            <img src="{{session.get('photo')}}">
+        {% if photo %}
+            <img src="{{photo}}">
         {% endif %}
         <h3>{{session.get("username")}}</h3>
         <p class="mono">ID {{my_id}}</p>
@@ -1211,7 +1376,7 @@ function loginGoogle(){
 
     <div id="results"></div>
 
-    <div class="section-label">Друзья</div>
+    <div class="section-label">Чаты</div>
 
     {% if friends %}
         {% for f in friends %}
@@ -1226,7 +1391,7 @@ function loginGoogle(){
             </a>
         {% endfor %}
     {% else %}
-        <div class="empty-state">Пока никого нет — найди кого-нибудь через поиск выше.</div>
+        <div class="empty-state">Пока пусто — найди кого-нибудь через поиск выше, и переписка появится здесь.</div>
     {% endif %}
 
 </div>
