@@ -99,6 +99,20 @@ def get_chat_partners(me):
     return sorted(partners, key=lambda p: (-order[p], p))
 
 
+def with_photos(usernames):
+    """Turn a list of usernames into [{username, photo}, ...] for template rendering."""
+    if not usernames:
+        return []
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute(f"SELECT username, photo FROM users WHERE username IN ({','.join('?' * len(usernames))})", usernames)
+    photo_map = dict(c.fetchall())
+    conn.close()
+
+    return [{"username": u, "photo": photo_map.get(u)} for u in usernames]
+
+
 def mark_read(user, peer):
     """Remember that `user` has seen all messages in the user<->peer thread so far."""
     conn = sqlite3.connect(DB)
@@ -234,7 +248,7 @@ def search():
     c = conn.cursor()
 
     c.execute("""
-    SELECT username, user_id FROM users
+    SELECT username, user_id, photo FROM users
     WHERE username LIKE ? OR user_id LIKE ?
     """, (f"%{q}%", f"%{q}%"))
 
@@ -304,9 +318,13 @@ def unread_counts():
         unread_msgs = c.fetchall()
 
         if unread_msgs:
+            c.execute("SELECT photo FROM users WHERE username=?", (sender,))
+            photo_row = c.fetchone()
+
             result[sender] = {
                 "count": len(unread_msgs),
-                "last": unread_msgs[-1][0]
+                "last": unread_msgs[-1][0],
+                "photo": photo_row[0] if photo_row else None
             }
 
     conn.close()
@@ -342,11 +360,12 @@ def chat(user):
 
     mark_read(me, user)
 
-    chats = get_chat_partners(me)
+    chats = with_photos(get_chat_partners(me))
 
     return render_template_string(HTML,
         friends=chats,
         peer=user,
+        peer_photo=get_profile_photo(user),
         messages=messages,
         my_id=session.get("user_id"),
         me=me,
@@ -445,7 +464,7 @@ def home():
     session["username"] = username or None
     session["user_id"] = user_id
 
-    chats = get_chat_partners(username) if username else []
+    chats = with_photos(get_chat_partners(username)) if username else []
 
     return render_template_string(
         HTML,
@@ -1016,6 +1035,7 @@ body{
     flex-shrink:0;
     animation:popIn .3s ease both;
 }
+img.avatar-badge{ object-fit:cover; }
 
 .result-meta{ flex:1; min-width:0; }
 .result-meta .u{ font-weight:600; font-size:14.5px; }
@@ -1380,14 +1400,18 @@ function loginGoogle(){
 
     {% if friends %}
         {% for f in friends %}
-            <a class="friend-row" href="/chat/{{f}}" data-friend="{{f}}">
-                <div class="avatar-badge" style="background:hsl({{ (f|length * 47) % 360 }},60%,45%)">
-                    {{f[0]|upper}}
-                </div>
+            <a class="friend-row" href="/chat/{{f.username}}" data-friend="{{f.username}}">
+                {% if f.photo %}
+                    <img class="avatar-badge" src="{{f.photo}}">
+                {% else %}
+                    <div class="avatar-badge" style="background:hsl({{ (f.username|length * 47) % 360 }},60%,45%)">
+                        {{f.username[0]|upper}}
+                    </div>
+                {% endif %}
                 <div class="result-meta">
-                    <div class="u">{{f}}</div>
+                    <div class="u">{{f.username}}</div>
                 </div>
-                <span class="unread-badge" data-badge="{{f}}"></span>
+                <span class="unread-badge" data-badge="{{f.username}}"></span>
             </a>
         {% endfor %}
     {% else %}
@@ -1401,9 +1425,13 @@ function loginGoogle(){
 <div class="chat-header">
     <a class="back-btn" href="/">← Чаты</a>
     <div class="peer-title">
-        <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (peer|length * 47) % 360 }},60%,45%)">
-            {{peer[0]|upper}}
-        </div>
+        {% if peer_photo %}
+            <img class="avatar-badge" style="width:32px;height:32px;" src="{{peer_photo}}">
+        {% else %}
+            <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (peer|length * 47) % 360 }},60%,45%)">
+                {{peer[0]|upper}}
+            </div>
+        {% endif %}
         {{peer}}
     </div>
     <div style="flex:1;"></div>
@@ -1540,9 +1568,12 @@ async function searchUser(){
     let html = "";
     data.results.forEach(u => {
         const hue = (u[0].length * 47) % 360;
+        const avatarHtml = u[2]
+            ? `<img class="avatar-badge" src="${u[2]}">`
+            : `<div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${u[0][0].toUpperCase()}</div>`;
         html += `
         <div class="result-row" onclick="window.location.href='/chat/${encodeURIComponent(u[0])}'" style="cursor:pointer;">
-            <div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${u[0][0].toUpperCase()}</div>
+            ${avatarHtml}
             <div class="result-meta">
                 <div class="u">${u[0]}</div>
                 <div class="id mono">ID ${u[1]}</div>
@@ -1567,15 +1598,19 @@ if(localStorage.getItem("theme") === "dark"){
     document.body.classList.add("dark");
 }
 
-function showToast(friend, text){
+function showToast(friend, text, photo){
     const stack = document.getElementById("toast-stack");
     if(!stack) return;
 
     const hue = (friend.length * 47) % 360;
+    const avatarHtml = photo
+        ? `<img class="avatar-badge" src="${photo}">`
+        : `<div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${escapeHtml(friend[0].toUpperCase())}</div>`;
+
     const t = document.createElement("div");
     t.className = "toast";
     t.innerHTML = `
-        <div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${escapeHtml(friend[0].toUpperCase())}</div>
+        ${avatarHtml}
         <div class="toast-text"><b>${escapeHtml(friend)}</b>: ${escapeHtml(text)}</div>
     `;
     t.onclick = () => { window.location.href = "/chat/" + encodeURIComponent(friend); };
@@ -1594,12 +1629,12 @@ function requestNotifyPermission(){
     }
 }
 
-function notifyNewMessage(friend, text){
+function notifyNewMessage(friend, text, photo){
     const canUseSystem = ("Notification" in window) && Notification.permission === "granted" && document.hidden;
 
     if(canUseSystem){
         try{
-            const n = new Notification(friend, { body: text, tag: "relay-" + friend });
+            const n = new Notification(friend, { body: text, tag: "relay-" + friend, icon: photo || undefined });
             n.onclick = () => {
                 window.focus();
                 window.location.href = "/chat/" + encodeURIComponent(friend);
@@ -1608,7 +1643,7 @@ function notifyNewMessage(friend, text){
         } catch(e){ /* fall through to in-page toast */ }
     }
 
-    showToast(friend, text);
+    showToast(friend, text, photo);
 }
 
 function applyUnreadBadges(data){
@@ -1635,7 +1670,7 @@ async function pollUnread(){
             for(const friend in data){
                 const prevCount = (knownUnread[friend] && knownUnread[friend].count) || 0;
                 if(data[friend].count > prevCount){
-                    notifyNewMessage(friend, data[friend].last);
+                    notifyNewMessage(friend, data[friend].last, data[friend].photo);
                 }
             }
         }
