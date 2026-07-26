@@ -590,6 +590,23 @@ a{ transition:transform .15s ease, background .2s ease; }
 @media (prefers-reduced-motion: reduce){
     *{ animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; }
 }
+
+#offline-banner{
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+    z-index:9999999;
+    background:#EF4444;
+    color:white;
+    text-align:center;
+    font-size:13px;
+    font-weight:600;
+    padding:9px 12px;
+    transform:translateY(-100%);
+    transition:transform .25s ease;
+}
+#offline-banner.show{ transform:translateY(0); }
 </style>
 """
 
@@ -665,6 +682,7 @@ AUTH_SHELL = BASE_STYLE + """
 </style>
 </head>
 <body>
+<div id="offline-banner">Нет доступа к интернету</div>
 <div class="auth-wrap">
     <div class="auth-card">
         <div class="wordmark"><span class="dot"></span>Relay</div>
@@ -676,6 +694,15 @@ AUTH_SHELL = BASE_STYLE + """
 if(localStorage.getItem("theme") === "dark"){
     document.body.classList.add("dark");
 }
+
+function updateOnlineStatus(){
+    var banner = document.getElementById("offline-banner");
+    if(!banner) return;
+    banner.classList.toggle("show", !navigator.onLine);
+}
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+updateOnlineStatus();
 </script>
 </body>
 </html>
@@ -802,6 +829,7 @@ SETTINGS_HTML = BASE_STYLE + """
 </style>
 </head>
 <body>
+<div id="offline-banner">Нет доступа к интернету</div>
 <div class="settings-wrap">
     <div class="settings-card">
         <h2>Настройки</h2>
@@ -837,6 +865,15 @@ SETTINGS_HTML = BASE_STYLE + """
 if(localStorage.getItem("theme") === "dark"){
     document.body.classList.add("dark");
 }
+
+function updateOnlineStatus(){
+    var banner = document.getElementById("offline-banner");
+    if(!banner) return;
+    banner.classList.toggle("show", !navigator.onLine);
+}
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+updateOnlineStatus();
 
 function resizeImageFile(file, size){
     return new Promise((resolve, reject) => {
@@ -1308,6 +1345,7 @@ img.avatar-badge{ object-fit:cover; }
 
 <body>
 
+<div id="offline-banner">Нет доступа к интернету</div>
 <div id="toast-stack"></div>
 <div id="overlay" onclick="toggleMenu()"></div>
 
@@ -1598,6 +1636,15 @@ if(localStorage.getItem("theme") === "dark"){
     document.body.classList.add("dark");
 }
 
+function updateOnlineStatus(){
+    var banner = document.getElementById("offline-banner");
+    if(!banner) return;
+    banner.classList.toggle("show", !navigator.onLine);
+}
+window.addEventListener("online", updateOnlineStatus);
+window.addEventListener("offline", updateOnlineStatus);
+updateOnlineStatus();
+
 function showToast(friend, text, photo){
     const stack = document.getElementById("toast-stack");
     if(!stack) return;
@@ -1666,6 +1713,9 @@ async function pollUnread(){
         let res = await fetch("/unread-counts");
         let data = await res.json();
 
+        const banner = document.getElementById("offline-banner");
+        if(banner) banner.classList.remove("show");
+
         if(knownUnread !== null){
             for(const friend in data){
                 const prevCount = (knownUnread[friend] && knownUnread[friend].count) || 0;
@@ -1677,7 +1727,10 @@ async function pollUnread(){
 
         knownUnread = data;
         applyUnreadBadges(data);
-    } catch(e){ /* ignore transient network errors */ }
+    } catch(e){
+        const banner = document.getElementById("offline-banner");
+        if(banner) banner.classList.add("show");
+    }
 }
 
 if(MY_USERNAME){
