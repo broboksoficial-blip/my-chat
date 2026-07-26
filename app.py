@@ -1,11 +1,13 @@
 from flask import Flask, request, render_template_string, session, redirect, jsonify
 import sqlite3
 import random
+import time
 
 app = Flask(__name__)
 app.secret_key = "chat_secret"
 
 DB = "chat.db"
+ONLINE_THRESHOLD_SECONDS = 15
 
 # ---------------- DB ----------------
 def init_db():
@@ -43,6 +45,13 @@ def init_db():
         peer TEXT,
         last_id INTEGER,
         PRIMARY KEY (user, peer)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS presence (
+        username TEXT PRIMARY KEY,
+        last_seen REAL
     )
     """)
 
@@ -111,6 +120,39 @@ def with_photos(usernames):
     conn.close()
 
     return [{"username": u, "photo": photo_map.get(u)} for u in usernames]
+
+
+def touch_presence(username):
+    """Record that `username` was just active - called on every poll from a logged-in client."""
+    if not username:
+        return
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO presence (username, last_seen) VALUES (?, ?)
+        ON CONFLICT(username) DO UPDATE SET last_seen=excluded.last_seen
+    """, (username, time.time()))
+    conn.commit()
+    conn.close()
+
+
+def get_online_map(usernames):
+    """Return {username: bool} - whether each was seen within the online threshold."""
+    if not usernames:
+        return {}
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute(
+        f"SELECT username, last_seen FROM presence WHERE username IN ({','.join('?' * len(usernames))})",
+        usernames
+    )
+    seen = dict(c.fetchall())
+    conn.close()
+
+    now = time.time()
+    return {u: bool(seen.get(u) and (now - seen[u]) < ONLINE_THRESHOLD_SECONDS) for u in usernames}
 
 
 def mark_read(user, peer):
@@ -299,6 +341,8 @@ def unread_counts():
 
     me = row[0]
 
+    touch_presence(me)
+
     c.execute("SELECT DISTINCT sender FROM messages WHERE receiver=?", (me,))
     senders = [r[0] for r in c.fetchall()]
 
@@ -330,6 +374,34 @@ def unread_counts():
     conn.close()
 
     return jsonify(result)
+
+
+# ---------------- PRESENCE (who's online) ----------------
+@app.route("/presence", methods=["POST"])
+def presence():
+    email = session.get("email")
+    if not email:
+        return jsonify({})
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT username FROM users WHERE email=?", (email,))
+    row = c.fetchone()
+    conn.close()
+
+    me = row[0] if row else None
+    if me:
+        touch_presence(me)
+
+    data = request.get_json(silent=True) or {}
+    usernames = data.get("usernames", [])
+    if not isinstance(usernames, list):
+        usernames = []
+    usernames = [u for u in usernames if isinstance(u, str)][:200]
+
+    return jsonify(get_online_map(usernames))
+
+
 @app.route("/chat/<user>")
 def chat(user):
     email = session.get("email")
@@ -1002,8 +1074,11 @@ body{
     display:flex;
     align-items:center;
     gap:10px;
+}
+.peer-name{
     font-weight:600;
     font-size:15px;
+    line-height:1.25;
 }
 
 /* ---------- HOME / FRIEND LIST ---------- */
@@ -1073,6 +1148,33 @@ body{
     animation:popIn .3s ease both;
 }
 img.avatar-badge{ object-fit:cover; }
+
+.avatar-wrap{
+    position:relative;
+    flex-shrink:0;
+    display:flex;
+}
+
+.status-dot{
+    position:absolute;
+    bottom:-1px;
+    right:-1px;
+    width:11px;
+    height:11px;
+    border-radius:50%;
+    background:#9CA3AF;
+    border:2px solid var(--surface);
+    transition:background .2s ease;
+}
+
+.status-dot.online{ background:#22C55E; }
+
+.peer-status-text{
+    font-size:11.5px;
+    font-weight:400;
+    color:var(--text-dim);
+}
+.peer-status-text.online{ color:#22C55E; font-weight:500; }
 
 .result-meta{ flex:1; min-width:0; }
 .result-meta .u{ font-weight:600; font-size:14.5px; }
@@ -1439,13 +1541,16 @@ function loginGoogle(){
     {% if friends %}
         {% for f in friends %}
             <a class="friend-row" href="/chat/{{f.username}}" data-friend="{{f.username}}">
-                {% if f.photo %}
-                    <img class="avatar-badge" src="{{f.photo}}">
-                {% else %}
-                    <div class="avatar-badge" style="background:hsl({{ (f.username|length * 47) % 360 }},60%,45%)">
-                        {{f.username[0]|upper}}
-                    </div>
-                {% endif %}
+                <div class="avatar-wrap">
+                    {% if f.photo %}
+                        <img class="avatar-badge" src="{{f.photo}}">
+                    {% else %}
+                        <div class="avatar-badge" style="background:hsl({{ (f.username|length * 47) % 360 }},60%,45%)">
+                            {{f.username[0]|upper}}
+                        </div>
+                    {% endif %}
+                    <span class="status-dot" data-status="{{f.username}}"></span>
+                </div>
                 <div class="result-meta">
                     <div class="u">{{f.username}}</div>
                 </div>
@@ -1463,14 +1568,20 @@ function loginGoogle(){
 <div class="chat-header">
     <a class="back-btn" href="/">← Чаты</a>
     <div class="peer-title">
-        {% if peer_photo %}
-            <img class="avatar-badge" style="width:32px;height:32px;" src="{{peer_photo}}">
-        {% else %}
-            <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (peer|length * 47) % 360 }},60%,45%)">
-                {{peer[0]|upper}}
-            </div>
-        {% endif %}
-        {{peer}}
+        <div class="avatar-wrap">
+            {% if peer_photo %}
+                <img class="avatar-badge" style="width:32px;height:32px;" src="{{peer_photo}}">
+            {% else %}
+                <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (peer|length * 47) % 360 }},60%,45%)">
+                    {{peer[0]|upper}}
+                </div>
+            {% endif %}
+            <span class="status-dot" data-status="{{peer}}"></span>
+        </div>
+        <div>
+            <div class="peer-name">{{peer}}</div>
+            <div class="peer-status-text" id="peerStatusText">—</div>
+        </div>
     </div>
     <div style="flex:1;"></div>
     <button class="icon-btn" onclick="toggleMenu()">☰</button>
@@ -1733,10 +1844,40 @@ async function pollUnread(){
     }
 }
 
+async function pollPresence(){
+    const dots = document.querySelectorAll("[data-status]");
+    if(dots.length === 0) return;
+
+    const usernames = Array.from(new Set(Array.from(dots).map(el => el.getAttribute("data-status"))));
+
+    try{
+        const res = await fetch("/presence", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ usernames })
+        });
+        const data = await res.json();
+
+        dots.forEach(el => {
+            el.classList.toggle("online", !!data[el.getAttribute("data-status")]);
+        });
+
+        const statusText = document.getElementById("peerStatusText");
+        const activePeer = (typeof PEER !== "undefined") ? PEER : null;
+        if(statusText && activePeer){
+            const online = !!data[activePeer];
+            statusText.textContent = online ? "в сети" : "не в сети";
+            statusText.classList.toggle("online", online);
+        }
+    } catch(e){ /* ignore transient network errors */ }
+}
+
 if(MY_USERNAME){
     requestNotifyPermission();
     pollUnread();
     setInterval(pollUnread, 3000);
+    pollPresence();
+    setInterval(pollPresence, 5000);
 }
 </script>
 
