@@ -4,15 +4,24 @@ import random
 import time
 import os
 import uuid
+from datetime import timedelta
 
 app = Flask(__name__)
 app.secret_key = "chat_secret"
+
+# Without this, Flask issues a browser-session-only cookie that dies the moment
+# the tab/browser is closed, logging everyone out constantly. Make it last 90 days.
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=90)
 
 # DB_PATH env var lets you point this at a persistent disk mount (e.g. on Render,
 # a paid instance with a Disk attached at /var/data) so data survives redeploys.
 # Falls back to a local file for plain/free hosting where storage resets each deploy.
 DB = os.environ.get("DB_PATH", "chat.db")
 ONLINE_THRESHOLD_SECONDS = 15
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
 
 # ---------------- DB ----------------
 def init_db():
@@ -819,7 +828,13 @@ def call_incoming():
     if not row:
         return jsonify(None)
 
-    return jsonify({"room": row[0], "caller": row[1], "kind": row[2]})
+    conn2 = sqlite3.connect(DB)
+    c2 = conn2.cursor()
+    c2.execute("SELECT photo FROM users WHERE username=?", (row[1],))
+    photo_row = c2.fetchone()
+    conn2.close()
+
+    return jsonify({"room": row[0], "caller": row[1], "kind": row[2], "caller_photo": photo_row[0] if photo_row else None})
 
 
 @app.route("/call/respond", methods=["POST"])
@@ -2393,9 +2408,13 @@ function loginGoogle(){
     {% if groups %}
         {% for g in groups %}
             <a class="friend-row" href="/group/{{g.id}}">
-                <div class="avatar-badge" style="background:hsl({{ (g.name|length * 47) % 360 }},55%,40%)">
-                    #
-                </div>
+                {% if g.photo %}
+                    <img class="avatar-badge" src="{{g.photo}}">
+                {% else %}
+                    <div class="avatar-badge" style="background:hsl({{ (g.name|length * 47) % 360 }},55%,40%)">
+                        #
+                    </div>
+                {% endif %}
                 <div class="result-meta">
                     <div class="u">{{g.name}}</div>
                     <div class="id" style="font-size:12px;color:var(--text-dim);">{{g.member_count}} участник(ов)</div>
@@ -2424,8 +2443,8 @@ function loginGoogle(){
         </div>
     </div>
     <div style="flex:1;"></div>
-    <button class="icon-btn" onclick="startGroupCall({{group.id}}, 'audio')" title="Аудиозвонок">📞</button>
-    <button class="icon-btn" onclick="startGroupCall({{group.id}}, 'video')" title="Видеозвонок">🎥</button>
+    <button class="icon-btn" onclick="startGroupCall({{group.id}}, 'audio', {{ (group.photo or None)|tojson }})" title="Аудиозвонок">📞</button>
+    <button class="icon-btn" onclick="startGroupCall({{group.id}}, 'video', {{ (group.photo or None)|tojson }})" title="Видеозвонок">🎥</button>
     <button class="icon-btn" onclick="toggleGroupSettings()" title="Настройки группы">⚙️</button>
     <button class="icon-btn" onclick="toggleMenu()">☰</button>
 </div>
@@ -2472,6 +2491,7 @@ function loginGoogle(){
 <script>
 const ME = {{ me|tojson }};
 const GROUP_ID = {{ group.id|tojson }};
+const GROUP_PHOTO = {{ (group.photo or None)|tojson }};
 
 function escapeHtml(str){
     return str.replace(/[&<>"']/g, s => ({
@@ -2606,7 +2626,7 @@ async function pollGroupCallBanner(){
 function joinActiveGroupCall(){
     const banner = document.getElementById("groupCallBanner");
     if(banner && banner.dataset.room){
-        joinGroupCall(GROUP_ID, banner.dataset.room, banner.dataset.kind, "Группа");
+        joinGroupCall(GROUP_ID, banner.dataset.room, banner.dataset.kind, "Группа", GROUP_PHOTO);
     }
 }
 
@@ -2635,8 +2655,8 @@ pollGroupCallBanner();
         </div>
     </div>
     <div style="flex:1;"></div>
-    <button class="icon-btn" onclick="startCall('{{peer}}', 'audio')" title="Аудиозвонок">📞</button>
-    <button class="icon-btn" onclick="startCall('{{peer}}', 'video')" title="Видеозвонок">🎥</button>
+    <button class="icon-btn" onclick="startCall('{{peer}}', 'audio', {{ (peer_photo or None)|tojson }})" title="Аудиозвонок">📞</button>
+    <button class="icon-btn" onclick="startCall('{{peer}}', 'video', {{ (peer_photo or None)|tojson }})" title="Видеозвонок">🎥</button>
     <button class="icon-btn" onclick="toggleMenu()">☰</button>
 </div>
 
@@ -2982,6 +3002,7 @@ async function pollPresence(){
 let callState = "idle"; // idle | ringing-out | ringing-in | active
 let currentRoom = null;
 let currentPeerName = null;
+let currentPeerPhoto = null;
 let currentKind = null;
 let pc = null;
 let localStream = null;
@@ -2993,16 +3014,25 @@ let signalsPollTimer = null;
 function showCallOverlay(){ document.getElementById("call-overlay").classList.add("show"); }
 function hideCallOverlay(){ document.getElementById("call-overlay").classList.remove("show"); }
 
-function setCallHeader(name, sub){
+function setCallHeader(name, sub, photo){
     const av = document.getElementById("callAvatar");
-    const hue = (name.length * 47) % 360;
-    av.style.background = `hsl(${hue},60%,45%)`;
-    av.textContent = name[0] ? name[0].toUpperCase() : "?";
+    if(photo){
+        av.style.background = "none";
+        av.style.backgroundImage = `url(${photo})`;
+        av.style.backgroundSize = "cover";
+        av.style.backgroundPosition = "center";
+        av.textContent = "";
+    } else {
+        const hue = (name.length * 47) % 360;
+        av.style.backgroundImage = "none";
+        av.style.background = `hsl(${hue},60%,45%)`;
+        av.textContent = name[0] ? name[0].toUpperCase() : "?";
+    }
     document.getElementById("callName").textContent = name;
     document.getElementById("callSub").textContent = sub;
 }
 
-async function startCall(callee, kind){
+async function startCall(callee, kind, photo){
     if(callState !== "idle"){ alert("У тебя уже есть активный звонок"); return; }
 
     const res = await fetch("/call/start", {
@@ -3015,11 +3045,12 @@ async function startCall(callee, kind){
 
     currentRoom = data.room;
     currentPeerName = callee;
+    currentPeerPhoto = photo;
     currentKind = kind;
     callState = "ringing-out";
     lastSignalId = 0;
 
-    setCallHeader(callee, kind === "video" ? "Звоним... (видео)" : "Звоним...");
+    setCallHeader(callee, kind === "video" ? "Звоним... (видео)" : "Звоним...", photo);
     document.getElementById("callActionsIncoming").style.display = "none";
     document.getElementById("callActionsActive").style.display = "flex";
     showCallOverlay();
@@ -3040,7 +3071,7 @@ async function pollOutgoingStatus(){
             await beginWebRTC(true);
         } else if(data.status === "declined" || data.status === "ended"){
             clearInterval(statusPollTimer);
-            setCallHeader(currentPeerName, "Звонок отклонён");
+            setCallHeader(currentPeerName, "Звонок отклонён", currentPeerPhoto);
             setTimeout(cleanupCall, 1500);
         }
     } catch(e){}
@@ -3055,11 +3086,12 @@ async function pollIncomingCall(){
 
         currentRoom = data.room;
         currentPeerName = data.caller;
+        currentPeerPhoto = data.caller_photo;
         currentKind = data.kind;
         callState = "ringing-in";
         lastSignalId = 0;
 
-        setCallHeader(data.caller, data.kind === "video" ? "Входящий видеозвонок" : "Входящий звонок");
+        setCallHeader(data.caller, data.kind === "video" ? "Входящий видеозвонок" : "Входящий звонок", data.caller_photo);
         document.getElementById("callActionsIncoming").style.display = "flex";
         document.getElementById("callActionsActive").style.display = "none";
         showCallOverlay();
@@ -3074,7 +3106,7 @@ async function acceptIncomingCall(){
     });
     document.getElementById("callActionsIncoming").style.display = "none";
     document.getElementById("callActionsActive").style.display = "flex";
-    setCallHeader(currentPeerName, currentKind === "video" ? "Видеозвонок" : "Аудиозвонок");
+    setCallHeader(currentPeerName, currentKind === "video" ? "Видеозвонок" : "Аудиозвонок", currentPeerPhoto);
     await beginWebRTC(false);
 }
 
@@ -3205,7 +3237,7 @@ function retryMediaPlayback(){
     });
 }
 
-async function startGroupCall(groupId, kind){
+async function startGroupCall(groupId, kind, photo){
     if(callState !== "idle"){ alert("У тебя уже есть активный звонок"); return; }
 
     const res = await fetch("/group-call/start", {
@@ -3216,10 +3248,10 @@ async function startGroupCall(groupId, kind){
     const data = await res.json();
     if(!data.ok){ alert("Не получилось начать звонок"); return; }
 
-    await joinGroupCall(groupId, data.room, kind, "Группа");
+    await joinGroupCall(groupId, data.room, kind, "Группа", photo);
 }
 
-async function joinGroupCall(groupId, room, kind, label){
+async function joinGroupCall(groupId, room, kind, label, photo){
     if(callState !== "idle"){ alert("У тебя уже есть активный звонок"); return; }
 
     stopIncomingPoll();
@@ -3232,7 +3264,7 @@ async function joinGroupCall(groupId, room, kind, label){
     groupLastSignalId = 0;
     groupPeers = {};
 
-    setCallHeader(label, kind === "video" ? "Групповой видеозвонок" : "Групповой звонок");
+    setCallHeader(label, kind === "video" ? "Групповой видеозвонок" : "Групповой звонок", photo);
     document.getElementById("callActionsIncoming").style.display = "none";
     document.getElementById("callActionsActive").style.display = "flex";
     document.getElementById("groupCallTiles").classList.add("show");
