@@ -96,8 +96,28 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         room TEXT,
         sender TEXT,
+        target TEXT,
         data TEXT,
         created_at REAL
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS group_calls (
+        room TEXT PRIMARY KEY,
+        group_id INTEGER,
+        kind TEXT,
+        started_by TEXT,
+        status TEXT,
+        created_at REAL
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS call_participants (
+        room TEXT,
+        username TEXT,
+        joined_at REAL
     )
     """)
 
@@ -112,6 +132,18 @@ def init_db():
     msg_cols = [r[1] for r in c.fetchall()]
     if "group_id" not in msg_cols:
         c.execute("ALTER TABLE messages ADD COLUMN group_id INTEGER")
+
+    # migration: add photo column to groups
+    c.execute("PRAGMA table_info(groups)")
+    group_cols = [r[1] for r in c.fetchall()]
+    if "photo" not in group_cols:
+        c.execute("ALTER TABLE groups ADD COLUMN photo TEXT")
+
+    # migration: add target column to signals (for group-call mesh routing)
+    c.execute("PRAGMA table_info(signals)")
+    signal_cols = [r[1] for r in c.fetchall()]
+    if "target" not in signal_cols:
+        c.execute("ALTER TABLE signals ADD COLUMN target TEXT")
 
     conn.commit()
     conn.close()
@@ -216,19 +248,19 @@ def get_user_groups(username):
     c = conn.cursor()
 
     c.execute("""
-        SELECT g.id, g.name FROM groups g
+        SELECT g.id, g.name, g.photo FROM groups g
         JOIN group_members gm ON gm.group_id = g.id
         WHERE gm.username = ?
     """, (username,))
     groups = c.fetchall()
 
     result = []
-    for gid, name in groups:
+    for gid, name, photo in groups:
         c.execute("SELECT COUNT(*) FROM group_members WHERE group_id=?", (gid,))
         member_count = c.fetchone()[0]
         c.execute("SELECT MAX(id) FROM messages WHERE group_id=?", (gid,))
         last_id = c.fetchone()[0] or 0
-        result.append({"id": gid, "name": name, "member_count": member_count, "_order": last_id})
+        result.append({"id": gid, "name": name, "photo": photo, "member_count": member_count, "_order": last_id})
 
     conn.close()
 
@@ -252,7 +284,7 @@ def is_group_member(group_id, username):
 def get_group_info(group_id):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("SELECT id, name FROM groups WHERE id=?", (group_id,))
+    c.execute("SELECT id, name, photo, created_by FROM groups WHERE id=?", (group_id,))
     row = c.fetchone()
     if not row:
         conn.close()
@@ -260,7 +292,7 @@ def get_group_info(group_id):
     c.execute("SELECT username FROM group_members WHERE group_id=?", (group_id,))
     members = [r[0] for r in c.fetchall()]
     conn.close()
-    return {"id": row[0], "name": row[1], "members": members}
+    return {"id": row[0], "name": row[1], "photo": row[2], "created_by": row[3], "members": members}
 
 
 def mark_read(user, peer):
@@ -643,6 +675,99 @@ def send_group(group_id):
     return jsonify({"ok": True})
 
 
+@app.route("/group/<int:group_id>/rename", methods=["POST"])
+def group_rename(group_id):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    info = get_group_info(group_id)
+    if not info or me not in info["members"]:
+        return jsonify({"ok": False}), 403
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "name required"}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("UPDATE groups SET name=? WHERE id=?", (name, group_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+@app.route("/group/<int:group_id>/photo", methods=["POST"])
+def group_photo(group_id):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    info = get_group_info(group_id)
+    if not info or me not in info["members"]:
+        return jsonify({"ok": False}), 403
+
+    data = request.get_json(silent=True) or {}
+    photo = data.get("photo", "")
+
+    if not isinstance(photo, str) or not photo.startswith("data:image/"):
+        return jsonify({"ok": False, "error": "invalid image"}), 400
+    if len(photo) > 1_500_000:
+        return jsonify({"ok": False, "error": "image too large"}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("UPDATE groups SET photo=? WHERE id=?", (photo, group_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+@app.route("/group/<int:group_id>/leave", methods=["POST"])
+def group_leave(group_id):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    info = get_group_info(group_id)
+    if not info or me not in info["members"]:
+        return jsonify({"ok": False}), 403
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM group_members WHERE group_id=? AND username=?", (group_id, me))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+@app.route("/group/<int:group_id>/delete", methods=["POST"])
+def group_delete(group_id):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    info = get_group_info(group_id)
+    if not info:
+        return jsonify({"ok": False}), 404
+    if info["created_by"] != me:
+        return jsonify({"ok": False, "error": "only the creator can delete this group"}), 403
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM groups WHERE id=?", (group_id,))
+    c.execute("DELETE FROM group_members WHERE group_id=?", (group_id,))
+    c.execute("DELETE FROM messages WHERE group_id=?", (group_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
 # ---------------- CALLS (1:1 audio/video via WebRTC) ----------------
 RING_TIMEOUT_SECONDS = 30
 
@@ -757,6 +882,22 @@ def call_end():
     return jsonify({"ok": True})
 
 
+def room_access_ok(c, room, me):
+    """Check whether `me` may read/write signals in this room - either a 1:1 call they're part of, or a group call for a group they belong to."""
+    c.execute("SELECT caller, callee FROM call_invites WHERE room=?", (room,))
+    row = c.fetchone()
+    if row:
+        return me in (row[0], row[1])
+
+    c.execute("SELECT group_id FROM group_calls WHERE room=?", (room,))
+    row = c.fetchone()
+    if row:
+        c.execute("SELECT 1 FROM group_members WHERE group_id=? AND username=?", (row[0], me))
+        return bool(c.fetchone())
+
+    return False
+
+
 @app.route("/signals/<room>", methods=["GET", "POST"])
 def signals(room):
     me = current_username()
@@ -766,32 +907,167 @@ def signals(room):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    # only allow access to a room you're actually part of
-    c.execute("SELECT caller, callee FROM call_invites WHERE room=?", (room,))
-    row = c.fetchone()
-    if not row or me not in (row[0], row[1]):
+    if not room_access_ok(c, room, me):
         conn.close()
         return jsonify({"ok": False}) if request.method == "POST" else jsonify([])
 
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         payload = data.get("data", "")
-        c.execute("INSERT INTO signals (room, sender, data, created_at) VALUES (?, ?, ?, ?)",
-                  (room, me, payload, time.time()))
+        target = data.get("target")  # None = 1:1 (implicit "the other person"); set = group mesh routing
+        c.execute("INSERT INTO signals (room, sender, target, data, created_at) VALUES (?, ?, ?, ?, ?)",
+                  (room, me, target, payload, time.time()))
         conn.commit()
         conn.close()
         return jsonify({"ok": True})
 
     after = request.args.get("after", 0, type=int)
     c.execute("""
-        SELECT id, data FROM signals
-        WHERE room=? AND sender!=? AND id>?
+        SELECT id, sender, data FROM signals
+        WHERE room=? AND sender!=? AND id>? AND (target IS NULL OR target=?)
         ORDER BY id
-    """, (room, me, after))
+    """, (room, me, after, me))
     rows = c.fetchall()
     conn.close()
 
-    return jsonify([{"id": r[0], "data": r[1]} for r in rows])
+    return jsonify([{"id": r[0], "from": r[1], "data": r[2]} for r in rows])
+
+
+# ---------------- GROUP CALLS (multi-party mesh via WebRTC) ----------------
+@app.route("/group-call/start", methods=["POST"])
+def group_call_start():
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    data = request.get_json(silent=True) or {}
+    group_id = data.get("group_id")
+    kind = data.get("kind")
+
+    info = get_group_info(group_id)
+    if not info or me not in info["members"]:
+        return jsonify({"ok": False}), 403
+    if kind not in ("audio", "video"):
+        return jsonify({"ok": False}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT room FROM group_calls WHERE group_id=? AND status='active'", (group_id,))
+    existing = c.fetchone()
+    if existing:
+        conn.close()
+        return jsonify({"ok": True, "room": existing[0]})
+
+    room = uuid.uuid4().hex
+    c.execute("""
+        INSERT INTO group_calls (room, group_id, kind, started_by, status, created_at)
+        VALUES (?, ?, ?, ?, 'active', ?)
+    """, (room, group_id, kind, me, time.time()))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True, "room": room})
+
+
+@app.route("/group-call/status/<int:group_id>")
+def group_call_status(group_id):
+    me = current_username()
+    if not me:
+        return jsonify({"active": False})
+
+    info = get_group_info(group_id)
+    if not info or me not in info["members"]:
+        return jsonify({"active": False})
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT room, kind FROM group_calls WHERE group_id=? AND status='active'", (group_id,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({"active": False})
+
+    c.execute("SELECT COUNT(*) FROM call_participants WHERE room=?", (row[0],))
+    count = c.fetchone()[0]
+    conn.close()
+
+    return jsonify({"active": True, "room": row[0], "kind": row[1], "participant_count": count})
+
+
+@app.route("/group-call/join", methods=["POST"])
+def group_call_join():
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    data = request.get_json(silent=True) or {}
+    room = data.get("room")
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT group_id, kind, status FROM group_calls WHERE room=?", (room,))
+    row = c.fetchone()
+    if not row or row[2] != "active":
+        conn.close()
+        return jsonify({"ok": False}), 404
+
+    if not is_group_member(row[0], me):
+        conn.close()
+        return jsonify({"ok": False}), 403
+
+    c.execute("SELECT username FROM call_participants WHERE room=?", (room,))
+    existing_participants = [r[0] for r in c.fetchall() if r[0] != me]
+
+    c.execute("INSERT INTO call_participants (room, username, joined_at) VALUES (?, ?, ?)", (room, me, time.time()))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True, "kind": row[1], "participants": existing_participants})
+
+
+@app.route("/group-call/participants/<room>")
+def group_call_participants(room):
+    me = current_username()
+    if not me:
+        return jsonify([])
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    if not room_access_ok(c, room, me):
+        conn.close()
+        return jsonify([])
+
+    c.execute("SELECT username FROM call_participants WHERE room=?", (room,))
+    participants = [r[0] for r in c.fetchall() if r[0] != me]
+    conn.close()
+
+    return jsonify(participants)
+
+
+@app.route("/group-call/leave", methods=["POST"])
+def group_call_leave():
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    data = request.get_json(silent=True) or {}
+    room = data.get("room")
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM call_participants WHERE room=? AND username=?", (room, me))
+
+    c.execute("SELECT COUNT(*) FROM call_participants WHERE room=?", (room,))
+    remaining = c.fetchone()[0]
+    if remaining == 0:
+        c.execute("UPDATE group_calls SET status='ended' WHERE room=?", (room,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
 
 
 @app.route("/chat/<user>")
@@ -1694,6 +1970,34 @@ img.avatar-badge{ object-fit:cover; }
     margin-bottom:16px;
 }
 
+.group-call-tiles{
+    display:none;
+    flex-wrap:wrap;
+    gap:8px;
+    justify-content:center;
+    margin-bottom:16px;
+}
+.group-call-tiles.show{ display:flex; }
+.group-call-tiles .tile{
+    position:relative;
+    width:120px;
+}
+.group-call-tiles video{
+    width:120px;
+    height:90px;
+    object-fit:cover;
+    border-radius:10px;
+    background:#000;
+}
+.group-call-tiles .tile-label{
+    position:absolute;
+    bottom:4px;
+    left:6px;
+    color:white;
+    font-size:11px;
+    text-shadow:0 1px 2px rgba(0,0,0,0.8);
+}
+
 .call-actions{
     display:flex;
     justify-content:center;
@@ -1710,6 +2014,26 @@ img.avatar-badge{ object-fit:cover; }
 }
 .call-btn.accept{ background:#22C55E; }
 .call-btn.decline{ background:#EF4444; }
+
+.group-call-banner{
+    display:none;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:10px 16px;
+    background:var(--primary-dim);
+    color:var(--primary);
+    font-size:13.5px;
+    font-weight:500;
+    border-bottom:1px solid var(--border);
+}
+
+.group-settings-panel{
+    padding:16px;
+    background:var(--surface);
+    border-bottom:1px solid var(--border);
+    text-align:center;
+}
 
 /* ---------- CHAT BUBBLES ---------- */
 .chat-box{
@@ -1908,7 +2232,7 @@ img.avatar-badge{ object-fit:cover; }
 <div id="toast-stack"></div>
 <div id="overlay" onclick="toggleMenu()"></div>
 
-<div id="call-overlay" class="call-overlay">
+<div id="call-overlay" class="call-overlay" onclick="retryMediaPlayback()">
     <div class="call-card">
         <div class="avatar-badge" id="callAvatar" style="width:72px;height:72px;font-size:26px;margin:0 auto 14px;"></div>
         <div class="call-name" id="callName">—</div>
@@ -1917,6 +2241,7 @@ img.avatar-badge{ object-fit:cover; }
         <video id="localVideo" class="call-local-video" autoplay playsinline muted></video>
         <video id="remoteVideo" class="call-remote-video" autoplay playsinline></video>
         <audio id="remoteAudio" autoplay></audio>
+        <div id="groupCallTiles" class="group-call-tiles"></div>
 
         <div class="call-actions" id="callActionsIncoming" style="display:none;">
             <button class="call-btn decline" onclick="declineIncomingCall()">✕</button>
@@ -2088,14 +2413,45 @@ function loginGoogle(){
 <div class="chat-header">
     <a class="back-btn" href="/">← Чаты</a>
     <div class="peer-title">
-        <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (group.name|length * 47) % 360 }},55%,40%)">#</div>
+        {% if group.photo %}
+            <img class="avatar-badge" style="width:32px;height:32px;" src="{{group.photo}}">
+        {% else %}
+            <div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl({{ (group.name|length * 47) % 360 }},55%,40%)">#</div>
+        {% endif %}
         <div>
             <div class="peer-name">{{group.name}}</div>
             <div class="peer-status-text">{{group.members|length}} участник(ов)</div>
         </div>
     </div>
     <div style="flex:1;"></div>
+    <button class="icon-btn" onclick="startGroupCall({{group.id}}, 'audio')" title="Аудиозвонок">📞</button>
+    <button class="icon-btn" onclick="startGroupCall({{group.id}}, 'video')" title="Видеозвонок">🎥</button>
+    <button class="icon-btn" onclick="toggleGroupSettings()" title="Настройки группы">⚙️</button>
     <button class="icon-btn" onclick="toggleMenu()">☰</button>
+</div>
+
+<div id="groupCallBanner" class="group-call-banner" style="display:none;">
+    <span id="groupCallBannerText">Идёт звонок</span>
+    <button class="add-btn" onclick="joinActiveGroupCall()">Присоединиться</button>
+</div>
+
+<div id="groupSettingsPanel" class="group-settings-panel" style="display:none;">
+    <label class="avatar-edit" id="groupAvatarEdit" style="margin:0 auto 12px;">
+        {% if group.photo %}
+            <img class="avatar" src="{{group.photo}}">
+        {% else %}
+            <div class="avatar"></div>
+        {% endif %}
+        <span class="cam">✎</span>
+        <span class="uploading">...</span>
+        <input type="file" accept="image/*" id="groupPhotoInput">
+    </label>
+    <input id="groupNameInput" type="text" value="{{group.name}}" style="width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px;">
+    <button class="add-btn" onclick="saveGroupName({{group.id}})" style="width:100%;padding:10px;margin-bottom:10px;">Сохранить название</button>
+    <button class="add-btn" onclick="leaveGroup({{group.id}})" style="width:100%;padding:10px;margin-bottom:10px;">Выйти из группы</button>
+    {% if group.created_by == me %}
+        <button class="add-btn" onclick="deleteGroup({{group.id}})" style="width:100%;padding:10px;background:#EF4444;color:white;">Удалить группу</button>
+    {% endif %}
 </div>
 
 <div class="chat-box" id="chatBox">
@@ -2171,6 +2527,91 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
     });
     updateChat();
 });
+
+function toggleGroupSettings(){
+    const panel = document.getElementById("groupSettingsPanel");
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+async function saveGroupName(groupId){
+    const name = document.getElementById("groupNameInput").value.trim();
+    if(!name) return;
+    const res = await fetch(`/group/${groupId}/rename`, {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ name })
+    });
+    const result = await res.json();
+    if(result.ok){ location.reload(); } else { alert("Не получилось переименовать группу"); }
+}
+
+async function leaveGroup(groupId){
+    if(!confirm("Выйти из группы?")) return;
+    await fetch(`/group/${groupId}/leave`, { method: "POST" });
+    window.location.href = "/";
+}
+
+async function deleteGroup(groupId){
+    if(!confirm("Удалить группу насовсем? Это действие нельзя отменить.")) return;
+    const res = await fetch(`/group/${groupId}/delete`, { method: "POST" });
+    const result = await res.json();
+    if(result.ok){
+        window.location.href = "/";
+    } else {
+        alert(result.error || "Не получилось удалить группу");
+    }
+}
+
+document.getElementById("groupPhotoInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+
+    const wrap = document.getElementById("groupAvatarEdit");
+    wrap.classList.add("busy");
+
+    try{
+        const dataUrl = await resizeImageFile(file, 240);
+        const res = await fetch(`/group/${GROUP_ID}/photo`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ photo: dataUrl })
+        });
+        const result = await res.json();
+        if(result.ok){ location.reload(); } else { alert("Не получилось загрузить фото"); wrap.classList.remove("busy"); }
+    } catch(err){
+        alert("Не получилось обработать изображение");
+        wrap.classList.remove("busy");
+    }
+});
+
+async function pollGroupCallBanner(){
+    try{
+        const res = await fetch("/group-call/status/" + GROUP_ID);
+        const data = await res.json();
+        const banner = document.getElementById("groupCallBanner");
+        if(!banner) return;
+
+        if(data.active && callState === "idle"){
+            document.getElementById("groupCallBannerText").textContent =
+                (data.kind === "video" ? "Идёт видеозвонок" : "Идёт звонок") + " · " + data.participant_count + " участник(ов)";
+            banner.dataset.room = data.room;
+            banner.dataset.kind = data.kind;
+            banner.style.display = "flex";
+        } else {
+            banner.style.display = "none";
+        }
+    } catch(e){}
+}
+
+function joinActiveGroupCall(){
+    const banner = document.getElementById("groupCallBanner");
+    if(banner && banner.dataset.room){
+        joinGroupCall(GROUP_ID, banner.dataset.room, banner.dataset.kind, "Группа");
+    }
+}
+
+setInterval(pollGroupCallBanner, 3000);
+pollGroupCallBanner();
 </script>
 
 {% else %}
@@ -2344,6 +2785,29 @@ async function searchUser(){
         `;
     });
     results.innerHTML = html;
+}
+
+function resizeImageFile(file, size){
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onerror = () => reject(new Error("decode failed"));
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                canvas.width = size;
+                canvas.height = size;
+                const ctx = canvas.getContext("2d");
+                const scale = Math.max(size / img.width, size / img.height);
+                const w = img.width * scale, h = img.height * scale;
+                ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+                resolve(canvas.toDataURL("image/jpeg", 0.85));
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
 }
 
 async function addFriend(username){
@@ -2652,8 +3116,11 @@ async function beginWebRTC(asCaller){
             const rv = document.getElementById("remoteVideo");
             rv.srcObject = event.streams[0];
             rv.style.display = "block";
+            rv.play().catch(() => {});
         } else {
-            document.getElementById("remoteAudio").srcObject = event.streams[0];
+            const ra = document.getElementById("remoteAudio");
+            ra.srcObject = event.streams[0];
+            ra.play().catch(() => {});
         }
     };
 
@@ -2720,7 +3187,252 @@ async function pollActiveStatus(){
     } catch(e){}
 }
 
+/* ---------- GROUP CALLS (multi-party mesh) ---------- */
+let groupCallRoom = null;
+let groupCallGroupId = null;
+let groupPeers = {};
+let groupPollTimer = null;
+let groupRosterTimer = null;
+let groupLastSignalId = 0;
+
+function retryMediaPlayback(){
+    const rv = document.getElementById("remoteVideo");
+    const ra = document.getElementById("remoteAudio");
+    if(rv && rv.srcObject) rv.play().catch(() => {});
+    if(ra && ra.srcObject) ra.play().catch(() => {});
+    document.querySelectorAll("#groupCallTiles video, #groupCallTiles audio").forEach(el => {
+        if(el.srcObject) el.play().catch(() => {});
+    });
+}
+
+async function startGroupCall(groupId, kind){
+    if(callState !== "idle"){ alert("У тебя уже есть активный звонок"); return; }
+
+    const res = await fetch("/group-call/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group_id: groupId, kind })
+    });
+    const data = await res.json();
+    if(!data.ok){ alert("Не получилось начать звонок"); return; }
+
+    await joinGroupCall(groupId, data.room, kind, "Группа");
+}
+
+async function joinGroupCall(groupId, room, kind, label){
+    if(callState !== "idle"){ alert("У тебя уже есть активный звонок"); return; }
+
+    stopIncomingPoll();
+
+    groupCallGroupId = groupId;
+    groupCallRoom = room;
+    currentRoom = room;
+    currentKind = kind;
+    callState = "active";
+    groupLastSignalId = 0;
+    groupPeers = {};
+
+    setCallHeader(label, kind === "video" ? "Групповой видеозвонок" : "Групповой звонок");
+    document.getElementById("callActionsIncoming").style.display = "none";
+    document.getElementById("callActionsActive").style.display = "flex";
+    document.getElementById("groupCallTiles").classList.add("show");
+    showCallOverlay();
+
+    try{
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: kind === "video" });
+    } catch(e){
+        alert("Не удалось получить доступ к камере/микрофону");
+        cleanupGroupCall();
+        return;
+    }
+
+    if(kind === "video"){
+        const lv = document.getElementById("localVideo");
+        lv.srcObject = localStream;
+        lv.style.display = "block";
+    }
+
+    const res = await fetch("/group-call/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room })
+    });
+    const data = await res.json();
+    if(!data.ok){
+        alert("Не получилось присоединиться к звонку");
+        cleanupGroupCall();
+        return;
+    }
+
+    for(const peerName of data.participants){
+        await connectToGroupPeer(peerName, true);
+    }
+
+    groupPollTimer = setInterval(pollGroupSignals, 900);
+    groupRosterTimer = setInterval(pollGroupRoster, 4000);
+}
+
+function createGroupPeerConnection(peerName){
+    const pc2 = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+
+    localStream.getTracks().forEach(track => pc2.addTrack(track, localStream));
+
+    pc2.onicecandidate = (event) => {
+        if(event.candidate){
+            sendGroupSignal(peerName, { type: "candidate", payload: JSON.stringify(event.candidate) });
+        }
+    };
+
+    pc2.ontrack = (event) => {
+        addOrUpdateGroupTile(peerName, event.streams[0]);
+    };
+
+    groupPeers[peerName] = pc2;
+    return pc2;
+}
+
+async function connectToGroupPeer(peerName, asOfferer){
+    if(groupPeers[peerName]) return;
+    const pc2 = createGroupPeerConnection(peerName);
+
+    if(asOfferer){
+        const offer = await pc2.createOffer();
+        await pc2.setLocalDescription(offer);
+        sendGroupSignal(peerName, { type: "offer", payload: JSON.stringify(offer) });
+    }
+}
+
+function sendGroupSignal(target, msg){
+    fetch("/signals/" + groupCallRoom, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: JSON.stringify(msg), target })
+    }).catch(() => {});
+}
+
+async function pollGroupSignals(){
+    if(!groupCallRoom) return;
+    try{
+        const res = await fetch("/signals/" + groupCallRoom + "?after=" + groupLastSignalId);
+        const items = await res.json();
+
+        for(const item of items){
+            groupLastSignalId = Math.max(groupLastSignalId, item.id);
+            const from = item.from;
+            const msg = JSON.parse(item.data);
+            const inner = JSON.parse(msg.payload);
+
+            if(msg.type === "offer"){
+                let pc2 = groupPeers[from];
+                if(!pc2) pc2 = createGroupPeerConnection(from);
+                await pc2.setRemoteDescription(new RTCSessionDescription(inner));
+                const answer = await pc2.createAnswer();
+                await pc2.setLocalDescription(answer);
+                sendGroupSignal(from, { type: "answer", payload: JSON.stringify(answer) });
+            } else if(msg.type === "answer"){
+                const pc2 = groupPeers[from];
+                if(pc2) await pc2.setRemoteDescription(new RTCSessionDescription(inner));
+            } else if(msg.type === "candidate"){
+                const pc2 = groupPeers[from];
+                if(pc2){ try{ await pc2.addIceCandidate(new RTCIceCandidate(inner)); } catch(e){} }
+            }
+        }
+    } catch(e){}
+}
+
+async function pollGroupRoster(){
+    if(!groupCallRoom) return;
+    try{
+        const res = await fetch("/group-call/participants/" + groupCallRoom);
+        const current = await res.json();
+
+        for(const name in groupPeers){
+            if(!current.includes(name)){
+                groupPeers[name].close();
+                delete groupPeers[name];
+                removeGroupTile(name);
+            }
+        }
+    } catch(e){}
+}
+
+function addOrUpdateGroupTile(peerName, stream){
+    let tile = document.getElementById("tile-" + peerName);
+    if(!tile){
+        tile = document.createElement("div");
+        tile.className = "tile";
+        tile.id = "tile-" + peerName;
+
+        const media = document.createElement(currentKind === "video" ? "video" : "audio");
+        media.autoplay = true;
+        media.playsInline = true;
+        media.id = "media-" + peerName;
+        tile.appendChild(media);
+
+        const label = document.createElement("div");
+        label.className = "tile-label";
+        label.textContent = peerName;
+        tile.appendChild(label);
+
+        document.getElementById("groupCallTiles").appendChild(tile);
+    }
+    const media = document.getElementById("media-" + peerName);
+    media.srcObject = stream;
+    media.play().catch(() => {});
+}
+
+function removeGroupTile(peerName){
+    const tile = document.getElementById("tile-" + peerName);
+    if(tile) tile.remove();
+}
+
+async function leaveGroupCallCleanup(){
+    if(groupCallRoom){
+        try{
+            await fetch("/group-call/leave", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ room: groupCallRoom })
+            });
+        } catch(e){}
+    }
+    cleanupGroupCall();
+}
+
+function cleanupGroupCall(){
+    if(groupPollTimer) clearInterval(groupPollTimer);
+    if(groupRosterTimer) clearInterval(groupRosterTimer);
+    groupPollTimer = null;
+    groupRosterTimer = null;
+
+    for(const name in groupPeers){
+        groupPeers[name].close();
+    }
+    groupPeers = {};
+    document.getElementById("groupCallTiles").innerHTML = "";
+    document.getElementById("groupCallTiles").classList.remove("show");
+
+    if(localStream){ localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+    document.getElementById("localVideo").style.display = "none";
+    document.getElementById("localVideo").srcObject = null;
+
+    hideCallOverlay();
+
+    groupCallRoom = null;
+    groupCallGroupId = null;
+    currentRoom = null;
+    currentKind = null;
+    callState = "idle";
+
+    startIncomingPoll();
+}
+
 async function hangUp(){
+    if(groupCallRoom){
+        await leaveGroupCallCleanup();
+        return;
+    }
+
     if(currentRoom){
         try{
             await fetch("/call/end", {
