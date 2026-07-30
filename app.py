@@ -141,6 +141,10 @@ def init_db():
     msg_cols = [r[1] for r in c.fetchall()]
     if "group_id" not in msg_cols:
         c.execute("ALTER TABLE messages ADD COLUMN group_id INTEGER")
+    if "media_type" not in msg_cols:
+        c.execute("ALTER TABLE messages ADD COLUMN media_type TEXT")
+    if "media_data" not in msg_cols:
+        c.execute("ALTER TABLE messages ADD COLUMN media_data TEXT")
 
     # migration: add photo column to groups
     c.execute("PRAGMA table_info(groups)")
@@ -618,7 +622,7 @@ def group_chat(group_id):
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("SELECT sender, message FROM messages WHERE group_id=? ORDER BY id", (group_id,))
+    c.execute("SELECT sender, message, media_type, media_data FROM messages WHERE group_id=? ORDER BY id", (group_id,))
     messages = c.fetchall()
     conn.close()
 
@@ -651,7 +655,7 @@ def group_messages(group_id):
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("SELECT sender, message FROM messages WHERE group_id=? ORDER BY id", (group_id,))
+    c.execute("SELECT sender, message, media_type, media_data FROM messages WHERE group_id=? ORDER BY id", (group_id,))
     msgs = c.fetchall()
     conn.close()
 
@@ -678,6 +682,40 @@ def send_group(group_id):
     c = conn.cursor()
     c.execute("INSERT INTO messages (sender, receiver, message, group_id) VALUES (?, ?, ?, ?)",
               (me, None, msg, group_id))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+MEDIA_SIZE_LIMIT_GROUP = 15_000_000
+
+@app.route("/send-group-media/<int:group_id>", methods=["POST"])
+def send_group_media(group_id):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    info = get_group_info(group_id)
+    if not info or me not in info["members"]:
+        return jsonify({"ok": False}), 403
+
+    data = request.get_json(silent=True) or {}
+    media_type = data.get("media_type")
+    media_data = data.get("media_data", "")
+    caption = data.get("caption", "")
+
+    if media_type not in ("image", "video") or not isinstance(media_data, str) or not media_data.startswith("data:"):
+        return jsonify({"ok": False, "error": "invalid media"}), 400
+    if len(media_data) > MEDIA_SIZE_LIMIT_GROUP:
+        return jsonify({"ok": False, "error": "file too large"}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO messages (sender, receiver, message, group_id, media_type, media_data)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (me, None, caption, group_id, media_type, media_data))
     conn.commit()
     conn.close()
 
@@ -1103,7 +1141,7 @@ def chat(user):
     me = row[0]
 
     c.execute("""
-    SELECT sender, message FROM messages
+    SELECT sender, message, media_type, media_data FROM messages
     WHERE (sender=? AND receiver=?)
     OR (sender=? AND receiver=?)
     ORDER BY id
@@ -1149,7 +1187,7 @@ def messages(user):
     me = row[0]
 
     c.execute("""
-        SELECT sender, message FROM messages
+        SELECT sender, message, media_type, media_data FROM messages
         WHERE (sender=? AND receiver=?)
         OR (sender=? AND receiver=?)
         ORDER BY id
@@ -1184,6 +1222,36 @@ def send(user):
     VALUES (?, ?, ?)
     """, (me, user, msg))
 
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+MEDIA_SIZE_LIMIT = 15_000_000  # ~15MB of base64 text - keeps SQLite/server reasonably happy
+
+@app.route("/send-media/<user>", methods=["POST"])
+def send_media(user):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    data = request.get_json(silent=True) or {}
+    media_type = data.get("media_type")
+    media_data = data.get("media_data", "")
+    caption = data.get("caption", "")
+
+    if media_type not in ("image", "video") or not isinstance(media_data, str) or not media_data.startswith("data:"):
+        return jsonify({"ok": False, "error": "invalid media"}), 400
+    if len(media_data) > MEDIA_SIZE_LIMIT:
+        return jsonify({"ok": False, "error": "file too large"}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO messages (sender, receiver, message, media_type, media_data)
+        VALUES (?, ?, ?, ?, ?)
+    """, (me, user, caption, media_type, media_data))
     conn.commit()
     conn.close()
 
@@ -2101,6 +2169,14 @@ img.avatar-badge{ object-fit:cover; }
     animation:fadeInUp .25s ease both;
 }
 
+.msg-media{
+    display:block;
+    max-width:240px;
+    max-height:320px;
+    border-radius:10px;
+    margin-bottom:4px;
+}
+
 /* ---------- INPUT ---------- */
 .input-bar{
     display:flex;
@@ -2477,13 +2553,19 @@ function loginGoogle(){
     {% for m in messages %}
         <div class="msg-row {{ 'me' if m[0] == me else 'them' }}">
             <div class="msg">
-                {% if m[0] != me %}<span class="sender">{{m[0]}}</span>{% endif %}{{m[1]}}
+                {% if m[0] != me %}<span class="sender">{{m[0]}}</span>{% endif %}
+                {% if m[2] == 'image' %}<img class="msg-media" src="{{m[3]}}">{% elif m[2] == 'video' %}<video class="msg-media" src="{{m[3]}}" controls playsinline></video>{% endif %}
+                {{m[1]}}
             </div>
         </div>
     {% endfor %}
 </div>
 
 <form class="input-bar" id="sendForm" method="POST" action="/send-group/{{group.id}}">
+    <label class="icon-btn" style="cursor:pointer;">
+        📎
+        <input type="file" id="mediaInput" accept="image/*,video/*" style="display:none;">
+    </label>
     <input name="msg" placeholder="Написать в группу..." autocomplete="off">
     <button type="submit">➤</button>
 </form>
@@ -2519,9 +2601,14 @@ async function updateChat(){
         const mine = m[0] === ME;
         const row = document.createElement("div");
         row.className = `msg-row msg-in ${mine ? 'me' : 'them'}`;
+        let mediaHtml = "";
+        if(m[2] === "image"){ mediaHtml = `<img class="msg-media" src="${m[3]}">`; }
+        else if(m[2] === "video"){ mediaHtml = `<video class="msg-media" src="${m[3]}" controls playsinline></video>`; }
         row.innerHTML = `
             <div class="msg">
-                ${mine ? '' : `<span class="sender">${escapeHtml(m[0])}</span>`}${escapeHtml(m[1])}
+                ${mine ? '' : `<span class="sender">${escapeHtml(m[0])}</span>`}
+                ${mediaHtml}
+                ${escapeHtml(m[1])}
             </div>
         `;
         box.appendChild(row);
@@ -2546,6 +2633,46 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
         body: "msg=" + encodeURIComponent(text)
     });
     updateChat();
+});
+
+document.getElementById("mediaInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    e.target.value = "";
+
+    try{
+        let mediaType, mediaData;
+
+        if(file.type.startsWith("image/")){
+            mediaType = "image";
+            mediaData = await resizeImageForChat(file, 1280);
+        } else if(file.type.startsWith("video/")){
+            if(file.size > 12 * 1024 * 1024){
+                alert("Видео слишком большое (максимум примерно 12 МБ). Попробуй покороче или более сжатое.");
+                return;
+            }
+            mediaType = "video";
+            mediaData = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error("read failed"));
+                reader.readAsDataURL(file);
+            });
+        } else {
+            alert("Можно отправить только фото или видео");
+            return;
+        }
+
+        const res = await fetch("/send-group-media/" + GROUP_ID, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ media_type: mediaType, media_data: mediaData })
+        });
+        const result = await res.json();
+        if(result.ok){ updateChat(); } else { alert(result.error || "Не получилось отправить файл"); }
+    } catch(err){
+        alert("Не получилось обработать файл");
+    }
 });
 
 function toggleGroupSettings(){
@@ -2664,13 +2791,19 @@ pollGroupCallBanner();
     {% for m in messages %}
         <div class="msg-row {{ 'me' if m[0] == me else 'them' }}">
             <div class="msg">
-                {% if m[0] != me %}<span class="sender">{{m[0]}}</span>{% endif %}{{m[1]}}
+                {% if m[0] != me %}<span class="sender">{{m[0]}}</span>{% endif %}
+                {% if m[2] == 'image' %}<img class="msg-media" src="{{m[3]}}">{% elif m[2] == 'video' %}<video class="msg-media" src="{{m[3]}}" controls playsinline></video>{% endif %}
+                {{m[1]}}
             </div>
         </div>
     {% endfor %}
 </div>
 
 <form class="input-bar" id="sendForm" method="POST" action="/send/{{peer}}">
+    <label class="icon-btn" style="cursor:pointer;">
+        📎
+        <input type="file" id="mediaInput" accept="image/*,video/*" style="display:none;">
+    </label>
     <input name="msg" placeholder="Написать сообщение..." autocomplete="off">
     <button type="submit">➤</button>
 </form>
@@ -2707,9 +2840,14 @@ async function updateChat(){
         const mine = m[0] === ME;
         const row = document.createElement("div");
         row.className = `msg-row msg-in ${mine ? 'me' : 'them'}`;
+        let mediaHtml = "";
+        if(m[2] === "image"){ mediaHtml = `<img class="msg-media" src="${m[3]}">`; }
+        else if(m[2] === "video"){ mediaHtml = `<video class="msg-media" src="${m[3]}" controls playsinline></video>`; }
         row.innerHTML = `
             <div class="msg">
-                ${mine ? '' : `<span class="sender">${escapeHtml(m[0])}</span>`}${escapeHtml(m[1])}
+                ${mine ? '' : `<span class="sender">${escapeHtml(m[0])}</span>`}
+                ${mediaHtml}
+                ${escapeHtml(m[1])}
             </div>
         `;
         box.appendChild(row);
@@ -2735,6 +2873,46 @@ document.getElementById("sendForm").addEventListener("submit", async (e) => {
         body: "msg=" + encodeURIComponent(text)
     });
     updateChat();
+});
+
+document.getElementById("mediaInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    e.target.value = "";
+
+    try{
+        let mediaType, mediaData;
+
+        if(file.type.startsWith("image/")){
+            mediaType = "image";
+            mediaData = await resizeImageForChat(file, 1280);
+        } else if(file.type.startsWith("video/")){
+            if(file.size > 12 * 1024 * 1024){
+                alert("Видео слишком большое (максимум примерно 12 МБ). Попробуй покороче или более сжатое.");
+                return;
+            }
+            mediaType = "video";
+            mediaData = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error("read failed"));
+                reader.readAsDataURL(file);
+            });
+        } else {
+            alert("Можно отправить только фото или видео");
+            return;
+        }
+
+        const res = await fetch("/send-media/" + encodeURIComponent(PEER), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ media_type: mediaType, media_data: mediaData })
+        });
+        const result = await res.json();
+        if(result.ok){ updateChat(); } else { alert(result.error || "Не получилось отправить файл"); }
+    } catch(err){
+        alert("Не получилось обработать файл");
+    }
 });
 </script>
 
@@ -2823,6 +3001,29 @@ function resizeImageFile(file, size){
                 const w = img.width * scale, h = img.height * scale;
                 ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
                 resolve(canvas.toDataURL("image/jpeg", 0.85));
+            };
+            img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+function resizeImageForChat(file, maxDim){
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("read failed"));
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onerror = () => reject(new Error("decode failed"));
+            img.onload = () => {
+                const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+                const w = Math.round(img.width * scale);
+                const h = Math.round(img.height * scale);
+                const canvas = document.createElement("canvas");
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL("image/jpeg", 0.78));
             };
             img.src = ev.target.result;
         };
@@ -3032,6 +3233,49 @@ function setCallHeader(name, sub, photo){
     document.getElementById("callSub").textContent = sub;
 }
 
+/* ---------- RING SOUNDS (generated tones, no audio files needed) ---------- */
+let ringCtx = null;
+let ringTimer = null;
+
+function getRingCtx(){
+    if(!ringCtx){
+        try{ ringCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch(e){ return null; }
+    }
+    if(ringCtx.state === "suspended"){ ringCtx.resume().catch(() => {}); }
+    return ringCtx;
+}
+
+function beep(freq, durationMs){
+    const ctx = getRingCtx();
+    if(!ctx) return;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.value = 0.2;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + durationMs / 1000);
+}
+
+function startRingback(){
+    stopRinging();
+    beep(425, 1000);
+    ringTimer = setInterval(() => beep(425, 1000), 3000);
+}
+
+function startRingtone(){
+    stopRinging();
+    const pattern = () => { beep(480, 400); setTimeout(() => beep(440, 400), 500); };
+    pattern();
+    ringTimer = setInterval(pattern, 2500);
+}
+
+function stopRinging(){
+    if(ringTimer){ clearInterval(ringTimer); ringTimer = null; }
+}
+
 async function startCall(callee, kind, photo){
     if(callState !== "idle"){ alert("У тебя уже есть активный звонок"); return; }
 
@@ -3054,6 +3298,7 @@ async function startCall(callee, kind, photo){
     document.getElementById("callActionsIncoming").style.display = "none";
     document.getElementById("callActionsActive").style.display = "flex";
     showCallOverlay();
+    startRingback();
 
     stopIncomingPoll();
     statusPollTimer = setInterval(pollOutgoingStatus, 1200);
@@ -3068,9 +3313,11 @@ async function pollOutgoingStatus(){
 
         if(data.status === "accepted"){
             clearInterval(statusPollTimer);
+            stopRinging();
             await beginWebRTC(true);
         } else if(data.status === "declined" || data.status === "ended"){
             clearInterval(statusPollTimer);
+            stopRinging();
             setCallHeader(currentPeerName, "Звонок отклонён", currentPeerPhoto);
             setTimeout(cleanupCall, 1500);
         }
@@ -3095,10 +3342,12 @@ async function pollIncomingCall(){
         document.getElementById("callActionsIncoming").style.display = "flex";
         document.getElementById("callActionsActive").style.display = "none";
         showCallOverlay();
+        startRingtone();
     } catch(e){}
 }
 
 async function acceptIncomingCall(){
+    stopRinging();
     await fetch("/call/respond", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3111,6 +3360,7 @@ async function acceptIncomingCall(){
 }
 
 async function declineIncomingCall(){
+    stopRinging();
     await fetch("/call/respond", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3478,6 +3728,7 @@ async function hangUp(){
 }
 
 function cleanupCall(){
+    stopRinging();
     if(statusPollTimer) clearInterval(statusPollTimer);
     if(signalsPollTimer) clearInterval(signalsPollTimer);
     statusPollTimer = null;
