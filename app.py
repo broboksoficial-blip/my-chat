@@ -773,6 +773,38 @@ def group_photo(group_id):
     return jsonify({"ok": True})
 
 
+@app.route("/group/<int:group_id>/invite", methods=["POST"])
+def group_invite(group_id):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    info = get_group_info(group_id)
+    if not info or me not in info["members"]:
+        return jsonify({"ok": False}), 403
+
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    if not username:
+        return jsonify({"ok": False, "error": "username required"}), 400
+
+    if username in info["members"]:
+        return jsonify({"ok": False, "error": "already a member"}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM users WHERE username=?", (username,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({"ok": False, "error": "user not found"}), 404
+
+    c.execute("INSERT INTO group_members (group_id, username) VALUES (?, ?)", (group_id, username))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
 @app.route("/group/<int:group_id>/leave", methods=["POST"])
 def group_leave(group_id):
     me = current_username()
@@ -2543,6 +2575,12 @@ function loginGoogle(){
     </label>
     <input id="groupNameInput" type="text" value="{{group.name}}" style="width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px;">
     <button class="add-btn" onclick="saveGroupName({{group.id}})" style="width:100%;padding:10px;margin-bottom:10px;">Сохранить название</button>
+
+    <div style="text-align:left;margin:16px 0 10px;font-size:12px;color:var(--text-dim);">Пригласить в группу:</div>
+    <input id="inviteInput" type="text" placeholder="Найти пользователя по имени или ID" oninput="searchInviteUser({{group.id}})"
+           style="width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;">
+    <div id="inviteResults" style="text-align:left;margin-top:8px;margin-bottom:10px;"></div>
+
     <button class="add-btn" onclick="leaveGroup({{group.id}})" style="width:100%;padding:10px;margin-bottom:10px;">Выйти из группы</button>
     {% if group.created_by == me %}
         <button class="add-btn" onclick="deleteGroup({{group.id}})" style="width:100%;padding:10px;background:#EF4444;color:white;">Удалить группу</button>
@@ -2574,6 +2612,7 @@ function loginGoogle(){
 const ME = {{ me|tojson }};
 const GROUP_ID = {{ group.id|tojson }};
 const GROUP_PHOTO = {{ (group.photo or None)|tojson }};
+const GROUP_MEMBERS = {{ group.members|tojson }};
 
 function escapeHtml(str){
     return str.replace(/[&<>"']/g, s => ({
@@ -2674,6 +2713,53 @@ document.getElementById("mediaInput").addEventListener("change", async (e) => {
         alert("Не получилось обработать файл");
     }
 });
+
+async function searchInviteUser(groupId){
+    const q = document.getElementById("inviteInput").value.trim();
+    const results = document.getElementById("inviteResults");
+
+    if(!q){ results.innerHTML = ""; return; }
+
+    const res = await fetch("/search?q=" + encodeURIComponent(q));
+    const data = await res.json();
+
+    const filtered = data.results.filter(u => u[0] !== ME && !GROUP_MEMBERS.includes(u[0]));
+
+    if(filtered.length === 0){
+        results.innerHTML = `<div class="empty-state" style="padding:4px 0;">Никого не нашлось</div>`;
+        return;
+    }
+
+    let html = "";
+    filtered.forEach(u => {
+        const hue = (u[0].length * 47) % 360;
+        const avatarHtml = u[2]
+            ? `<img class="avatar-badge" style="width:32px;height:32px;" src="${u[2]}">`
+            : `<div class="avatar-badge" style="width:32px;height:32px;font-size:12px;background:hsl(${hue},60%,45%)">${u[0][0].toUpperCase()}</div>`;
+        html += `
+        <div class="result-row">
+            ${avatarHtml}
+            <div class="result-meta"><div class="u">${u[0]}</div></div>
+            <button class="add-btn" onclick="inviteToGroup(${groupId}, '${u[0]}')">Пригласить</button>
+        </div>
+        `;
+    });
+    results.innerHTML = html;
+}
+
+async function inviteToGroup(groupId, username){
+    const res = await fetch(`/group/${groupId}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username })
+    });
+    const result = await res.json();
+    if(result.ok){
+        location.reload();
+    } else {
+        alert(result.error || "Не получилось пригласить");
+    }
+}
 
 function toggleGroupSettings(){
     const panel = document.getElementById("groupSettingsPanel");
