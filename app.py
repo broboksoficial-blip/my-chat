@@ -1314,8 +1314,38 @@ def home():
     conn.close()
 
     if not row:
-        session.clear()
-        return redirect("/")
+        cached_username = session.get("username")
+        cached_user_id = session.get("user_id")
+
+        if cached_username and cached_user_id:
+            # DB storage was wiped (e.g. a redeploy on hosting without a persistent
+            # disk) but the browser still holds a valid session - recreate the
+            # account under the same identity so the person stays logged in.
+            # Their old messages/friends/groups are gone either way (that data
+            # lived in the same wiped DB), but at least they aren't bounced back
+            # to the login screen.
+            conn2 = sqlite3.connect(DB)
+            c2 = conn2.cursor()
+            try:
+                c2.execute("""
+                    INSERT INTO users (email, name, username, user_id)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(email) DO NOTHING
+                """, (email, session.get("name", ""), cached_username, cached_user_id))
+                conn2.commit()
+            except sqlite3.IntegrityError:
+                pass
+            conn2.close()
+
+            conn3 = sqlite3.connect(DB)
+            c3 = conn3.cursor()
+            c3.execute("SELECT username, user_id FROM users WHERE email=?", (email,))
+            row = c3.fetchone()
+            conn3.close()
+
+        if not row:
+            session.clear()
+            return redirect("/")
 
     username, user_id = row
 
