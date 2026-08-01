@@ -130,6 +130,22 @@ def init_db():
     )
     """)
 
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS blocks (
+        blocker TEXT,
+        blocked TEXT,
+        PRIMARY KEY (blocker, blocked)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS muted_chats (
+        user TEXT,
+        peer TEXT,
+        PRIMARY KEY (user, peer)
+    )
+    """)
+
     # migration: add photo column to users if it doesn't exist yet
     c.execute("PRAGMA table_info(users)")
     existing_cols = [r[1] for r in c.fetchall()]
@@ -250,6 +266,43 @@ def get_online_map(usernames):
 
     now = time.time()
     return {u: bool(seen.get(u) and (now - seen[u]) < ONLINE_THRESHOLD_SECONDS) for u in usernames}
+
+
+def is_blocked_by(blocker, blocked):
+    """Has `blocker` blocked `blocked`?"""
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM blocks WHERE blocker=? AND blocked=?", (blocker, blocked))
+    row = c.fetchone()
+    conn.close()
+    return bool(row)
+
+
+def get_blocked_set(user):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT blocked FROM blocks WHERE blocker=?", (user,))
+    result = set(r[0] for r in c.fetchall())
+    conn.close()
+    return result
+
+
+def is_muted(user, peer):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM muted_chats WHERE user=? AND peer=?", (user, peer))
+    row = c.fetchone()
+    conn.close()
+    return bool(row)
+
+
+def get_muted_set(user):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("SELECT peer FROM muted_chats WHERE user=?", (user,))
+    result = set(r[0] for r in c.fetchall())
+    conn.close()
+    return result
 
 
 def get_user_groups(username):
@@ -496,18 +549,25 @@ def unread_counts():
 
     touch_presence(me)
 
-    c.execute("SELECT DISTINCT sender FROM messages WHERE receiver=?", (me,))
-    senders = [r[0] for r in c.fetchall()]
+    blocked_set = get_blocked_set(me)
+    muted_set = get_muted_set(me)
 
     result = {}
 
+    # ---- 1:1 unread ----
+    c.execute("SELECT DISTINCT sender FROM messages WHERE receiver=? AND group_id IS NULL", (me,))
+    senders = [r[0] for r in c.fetchall()]
+
     for sender in senders:
+        if sender in blocked_set:
+            continue
+
         c.execute("SELECT last_id FROM read_state WHERE user=? AND peer=?", (me, sender))
         row = c.fetchone()
         last_id = row[0] if row else 0
 
         c.execute("""
-            SELECT message FROM messages
+            SELECT message, media_type FROM messages
             WHERE sender=? AND receiver=? AND id>?
             ORDER BY id
         """, (sender, me, last_id))
@@ -518,15 +578,132 @@ def unread_counts():
             c.execute("SELECT photo FROM users WHERE username=?", (sender,))
             photo_row = c.fetchone()
 
+            last_text, last_media = unread_msgs[-1]
+            preview = "📷 Фото" if last_media == "image" else ("🎥 Видео" if last_media == "video" else last_text)
+
             result[sender] = {
+                "kind": "user",
+                "name": sender,
                 "count": len(unread_msgs),
-                "last": unread_msgs[-1][0],
-                "photo": photo_row[0] if photo_row else None
+                "last": preview,
+                "photo": photo_row[0] if photo_row else None,
+                "muted": sender in muted_set
+            }
+
+    # ---- group unread ----
+    c.execute("SELECT group_id FROM group_members WHERE username=?", (me,))
+    my_group_ids = [r[0] for r in c.fetchall()]
+
+    for gid in my_group_ids:
+        peer_key = f"group:{gid}"
+
+        c.execute("SELECT last_id FROM read_state WHERE user=? AND peer=?", (me, peer_key))
+        row = c.fetchone()
+        last_id = row[0] if row else 0
+
+        c.execute("""
+            SELECT message, media_type FROM messages
+            WHERE group_id=? AND sender!=? AND id>?
+            ORDER BY id
+        """, (gid, me, last_id))
+
+        unread_msgs = c.fetchall()
+
+        if unread_msgs:
+            c.execute("SELECT name, photo FROM groups WHERE id=?", (gid,))
+            grow = c.fetchone()
+            gname = grow[0] if grow else "Группа"
+            gphoto = grow[1] if grow else None
+
+            last_text, last_media = unread_msgs[-1]
+            preview = "📷 Фото" if last_media == "image" else ("🎥 Видео" if last_media == "video" else last_text)
+
+            result[peer_key] = {
+                "kind": "group",
+                "name": gname,
+                "group_id": gid,
+                "count": len(unread_msgs),
+                "last": preview,
+                "photo": gphoto,
+                "muted": peer_key in muted_set
             }
 
     conn.close()
 
     return jsonify(result)
+
+
+# ---------------- BLOCK / MUTE ----------------
+@app.route("/block/<username>", methods=["POST"])
+def block_user(username):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+    if username == me:
+        return jsonify({"ok": False}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO blocks (blocker, blocked) VALUES (?, ?)", (me, username))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+@app.route("/unblock/<username>", methods=["POST"])
+def unblock_user(username):
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM blocks WHERE blocker=? AND blocked=?", (me, username))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+@app.route("/mute", methods=["POST"])
+def mute_chat():
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    data = request.get_json(silent=True) or {}
+    peer = data.get("peer")
+    if not peer:
+        return jsonify({"ok": False}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO muted_chats (user, peer) VALUES (?, ?)", (me, peer))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
+
+
+@app.route("/unmute", methods=["POST"])
+def unmute_chat():
+    me = current_username()
+    if not me:
+        return jsonify({"ok": False}), 401
+
+    data = request.get_json(silent=True) or {}
+    peer = data.get("peer")
+    if not peer:
+        return jsonify({"ok": False}), 400
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("DELETE FROM muted_chats WHERE user=? AND peer=?", (me, peer))
+    conn.commit()
+    conn.close()
+
+    return jsonify({"ok": True})
 
 
 # ---------------- PRESENCE (who's online) ----------------
@@ -636,6 +813,7 @@ def group_chat(group_id):
         groups=groups,
         peer=None,
         group=info,
+        group_muted=is_muted(me, f"group:{group_id}"),
         messages=messages,
         my_id=session.get("user_id"),
         me=me,
@@ -1192,6 +1370,8 @@ def chat(user):
         groups=get_user_groups(me),
         peer=user,
         peer_photo=get_profile_photo(user),
+        peer_blocked=is_blocked_by(me, user),
+        peer_muted=is_muted(me, user),
         group=None,
         messages=messages,
         my_id=session.get("user_id"),
@@ -1249,6 +1429,10 @@ def send(user):
     me = row[0]
     msg = request.form["msg"]
 
+    if is_blocked_by(user, me):
+        conn.close()
+        return jsonify({"ok": False, "error": "blocked"}), 403
+
     c.execute("""
     INSERT INTO messages (sender, receiver, message)
     VALUES (?, ?, ?)
@@ -1277,6 +1461,8 @@ def send_media(user):
         return jsonify({"ok": False, "error": "invalid media"}), 400
     if len(media_data) > MEDIA_SIZE_LIMIT:
         return jsonify({"ok": False, "error": "file too large"}), 400
+    if is_blocked_by(user, me):
+        return jsonify({"ok": False, "error": "blocked"}), 403
 
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -2557,6 +2743,7 @@ function loginGoogle(){
                     <div class="u">{{g.name}}</div>
                     <div class="id" style="font-size:12px;color:var(--text-dim);">{{g.member_count}} участник(ов)</div>
                 </div>
+                <span class="unread-badge" data-badge="group:{{g.id}}"></span>
             </a>
         {% endfor %}
     {% else %}
@@ -2605,6 +2792,10 @@ function loginGoogle(){
     </label>
     <input id="groupNameInput" type="text" value="{{group.name}}" style="width:100%;padding:11px 14px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:14px;margin-bottom:10px;">
     <button class="add-btn" onclick="saveGroupName({{group.id}})" style="width:100%;padding:10px;margin-bottom:10px;">Сохранить название</button>
+
+    <button class="add-btn" id="groupMuteBtn" onclick="toggleGroupMute({{group.id}})" style="width:100%;padding:10px;margin-bottom:10px;">
+        {{ "🔔 Включить уведомления" if group_muted else "🔕 Отключить уведомления" }}
+    </button>
 
     <div style="text-align:left;margin:16px 0 10px;font-size:12px;color:var(--text-dim);">Пригласить в группу:</div>
     <input id="inviteInput" type="text" placeholder="Найти пользователя по имени или ID" oninput="searchInviteUser({{group.id}})"
@@ -2796,6 +2987,22 @@ function toggleGroupSettings(){
     panel.style.display = panel.style.display === "none" ? "block" : "none";
 }
 
+let groupMuted = {{ group_muted|tojson if group else "false" }};
+
+async function toggleGroupMute(groupId){
+    const url = groupMuted ? "/unmute" : "/mute";
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peer: "group:" + groupId })
+    });
+    const result = await res.json();
+    if(result.ok){
+        groupMuted = !groupMuted;
+        document.getElementById("groupMuteBtn").textContent = groupMuted ? "🔔 Включить уведомления" : "🔕 Отключить уведомления";
+    }
+}
+
 async function saveGroupName(groupId){
     const name = document.getElementById("groupNameInput").value.trim();
     if(!name) return;
@@ -2900,7 +3107,17 @@ pollGroupCallBanner();
     <div style="flex:1;"></div>
     <button class="icon-btn" onclick="startCall('{{peer}}', 'audio', {{ (peer_photo or None)|tojson }})" title="Аудиозвонок">📞</button>
     <button class="icon-btn" onclick="startCall('{{peer}}', 'video', {{ (peer_photo or None)|tojson }})" title="Видеозвонок">🎥</button>
+    <button class="icon-btn" onclick="togglePeerSettings()" title="Настройки">⚙️</button>
     <button class="icon-btn" onclick="toggleMenu()">☰</button>
+</div>
+
+<div id="peerSettingsPanel" class="group-settings-panel" style="display:none;">
+    <button class="add-btn" id="muteBtn" onclick="togglePeerMute()" style="width:100%;padding:10px;margin-bottom:10px;">
+        {{ "🔔 Включить уведомления" if peer_muted else "🔕 Отключить уведомления" }}
+    </button>
+    <button class="add-btn" id="blockBtn" onclick="togglePeerBlock()" style="width:100%;padding:10px;{% if not peer_blocked %}background:#EF4444;color:white;{% endif %}">
+        {{ "Разблокировать" if peer_blocked else "Заблокировать" }}
+    </button>
 </div>
 
 <div class="chat-box" id="chatBox">
@@ -2927,6 +3144,40 @@ pollGroupCallBanner();
 <script>
 const ME = {{ me|tojson }};
 const PEER = {{ peer|tojson }};
+let peerMuted = {{ peer_muted|tojson }};
+let peerBlocked = {{ peer_blocked|tojson }};
+
+function togglePeerSettings(){
+    const panel = document.getElementById("peerSettingsPanel");
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+}
+
+async function togglePeerMute(){
+    const url = peerMuted ? "/unmute" : "/mute";
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peer: PEER })
+    });
+    const result = await res.json();
+    if(result.ok){
+        peerMuted = !peerMuted;
+        document.getElementById("muteBtn").textContent = peerMuted ? "🔔 Включить уведомления" : "🔕 Отключить уведомления";
+    }
+}
+
+async function togglePeerBlock(){
+    const url = peerBlocked ? ("/unblock/" + encodeURIComponent(PEER)) : ("/block/" + encodeURIComponent(PEER));
+    const res = await fetch(url, { method: "POST" });
+    const result = await res.json();
+    if(result.ok){
+        peerBlocked = !peerBlocked;
+        const btn = document.getElementById("blockBtn");
+        btn.textContent = peerBlocked ? "Разблокировать" : "Заблокировать";
+        btn.style.background = peerBlocked ? "" : "#EF4444";
+        btn.style.color = peerBlocked ? "" : "white";
+    }
+}
 
 function escapeHtml(str){
     return str.replace(/[&<>"']/g, s => ({
@@ -3199,22 +3450,22 @@ window.addEventListener("online", updateOnlineStatus);
 window.addEventListener("offline", updateOnlineStatus);
 updateOnlineStatus();
 
-function showToast(friend, text, photo){
+function showToast(name, text, photo, link){
     const stack = document.getElementById("toast-stack");
     if(!stack) return;
 
-    const hue = (friend.length * 47) % 360;
+    const hue = (name.length * 47) % 360;
     const avatarHtml = photo
         ? `<img class="avatar-badge" src="${photo}">`
-        : `<div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${escapeHtml(friend[0].toUpperCase())}</div>`;
+        : `<div class="avatar-badge" style="background:hsl(${hue},60%,45%)">${escapeHtml(name[0].toUpperCase())}</div>`;
 
     const t = document.createElement("div");
     t.className = "toast";
     t.innerHTML = `
         ${avatarHtml}
-        <div class="toast-text"><b>${escapeHtml(friend)}</b>: ${escapeHtml(text)}</div>
+        <div class="toast-text"><b>${escapeHtml(name)}</b>: ${escapeHtml(text)}</div>
     `;
-    t.onclick = () => { window.location.href = "/chat/" + encodeURIComponent(friend); };
+    t.onclick = () => { window.location.href = link; };
     stack.appendChild(t);
 
     setTimeout(() => {
@@ -3230,21 +3481,21 @@ function requestNotifyPermission(){
     }
 }
 
-function notifyNewMessage(friend, text, photo){
+function notifyNewMessage(name, text, photo, link){
     const canUseSystem = ("Notification" in window) && Notification.permission === "granted" && document.hidden;
 
     if(canUseSystem){
         try{
-            const n = new Notification(friend, { body: text, tag: "relay-" + friend, icon: photo || undefined });
+            const n = new Notification(name, { body: text, tag: "relay-" + link, icon: photo || undefined });
             n.onclick = () => {
                 window.focus();
-                window.location.href = "/chat/" + encodeURIComponent(friend);
+                window.location.href = link;
             };
             return;
         } catch(e){ /* fall through to in-page toast */ }
     }
 
-    showToast(friend, text, photo);
+    showToast(name, text, photo, link);
 }
 
 function applyUnreadBadges(data){
@@ -3271,10 +3522,12 @@ async function pollUnread(){
         if(banner) banner.classList.remove("show");
 
         if(knownUnread !== null){
-            for(const friend in data){
-                const prevCount = (knownUnread[friend] && knownUnread[friend].count) || 0;
-                if(data[friend].count > prevCount){
-                    notifyNewMessage(friend, data[friend].last, data[friend].photo);
+            for(const key in data){
+                const entry = data[key];
+                const prevCount = (knownUnread[key] && knownUnread[key].count) || 0;
+                if(entry.count > prevCount && !entry.muted){
+                    const link = entry.kind === "group" ? ("/group/" + entry.group_id) : ("/chat/" + encodeURIComponent(key));
+                    notifyNewMessage(entry.name, entry.last, entry.photo, link);
                 }
             }
         }
